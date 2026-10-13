@@ -1,30 +1,13 @@
-import { describe, it, expect, vi } from "vitest";
-import { renderWithProviders } from "../../../test-utils";
+import { describe, expect, it } from "vitest";
 import NotFoundPage from "./NotFoundPage.vue";
+import { renderWithProviders } from "../../../test-utils";
 
 describe("NotFoundPage", () => {
-  it("menampilkan kode 404 dan pesan", () => {
-    const { wrapper } = renderWithProviders(NotFoundPage);
+  it("menampilkan pesan 404 dan tautan kembali", async () => {
+    const { wrapper } = await renderWithProviders(NotFoundPage, { route: "/tidak-ada" });
 
-    expect(wrapper.get("h1").text()).toBe("404");
-    expect(wrapper.text()).toContain("Halaman Tidak Ditemukan");
-  });
-
-  it("kembali ke halaman sebelumnya", async () => {
-    const { wrapper, router } = renderWithProviders(NotFoundPage);
-    const goSpy = vi.spyOn(router, "go").mockImplementation(() => undefined);
-
-    await wrapper.get('[data-testid="back-btn"]').trigger("click");
-
-    expect(goSpy).toHaveBeenCalledWith(-1);
-  });
-
-  it("menuju halaman utama", async () => {
-    const { wrapper, router } = renderWithProviders(NotFoundPage);
-    const pushSpy = vi.spyOn(router, "push").mockResolvedValue(undefined);
-
-    await wrapper.get('[data-testid="home-btn"]').trigger("click");
-
-    expect(pushSpy).toHaveBeenCalledWith("/");
+    expect(wrapper.text()).toContain("404");
+    expect(wrapper.text()).toContain("Halaman tidak ditemukan");
+    expect(wrapper.find("a").attributes("href")).toBe("/");
   });
 });

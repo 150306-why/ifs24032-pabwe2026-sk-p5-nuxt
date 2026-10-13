@@ -1,99 +1,131 @@
 import { defineStore } from "pinia";
-import userApi, { type User } from "../api/userApi";
-import { getErrorMessage, showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+import {
+  getProfile,
+  getUsers,
+  postPhoto,
+  putPassword,
+  putProfile,
+  type User,
+} from "../api/userApi";
+import { getErrorMessage, removeAccessToken } from "../../../helpers/apiHelper";
+import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+
+export type { User };
 
 export interface UsersState {
   users: User[];
   profile: User | null;
+  isUsers: boolean;
   isProfile: boolean;
-  isChangeProfile: boolean;
-  isChangeProfilePhoto: boolean;
-  isChangeProfilePassword: boolean;
+  isProfileChange: boolean;
+  isProfileChanged: boolean;
+  isPhotoChange: boolean;
+  isPhotoChanged: boolean;
+  isPasswordChange: boolean;
+  isPasswordChanged: boolean;
 }
 
 export const useUsersStore = defineStore("users", {
   state: (): UsersState => ({
     users: [],
     profile: null,
+    isUsers: false,
     isProfile: false,
-    isChangeProfile: false,
-    isChangeProfilePhoto: false,
-    isChangeProfilePassword: false,
+    isProfileChange: false,
+    isProfileChanged: false,
+    isPhotoChange: false,
+    isPhotoChanged: false,
+    isPasswordChange: false,
+    isPasswordChanged: false,
   }),
   actions: {
-    setUsers(users: User[]): void {
-      this.users = users;
-    },
-    setProfile(profile: User | null): void {
-      this.profile = profile;
-    },
-    setIsProfile(status: boolean): void {
-      this.isProfile = status;
-    },
-    setIsChangeProfile(status: boolean): void {
-      this.isChangeProfile = status;
-    },
-    setIsChangeProfilePhoto(status: boolean): void {
-      this.isChangeProfilePhoto = status;
-    },
-    setIsChangeProfilePassword(status: boolean): void {
-      this.isChangeProfilePassword = status;
-    },
-    async asyncSetUsers(): Promise<void> {
-      try {
-        this.setUsers(await userApi.getUsers());
-      } catch {
-        this.setUsers([]);
+    async asyncGetUsers() {
+      this.isUsers = true;
+      const response = await getUsers();
+      this.isUsers = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.users = response.data.users;
     },
-    async asyncSetProfile(): Promise<void> {
-      try {
-        this.setProfile(await userApi.getProfile());
-      } catch {
-        this.setProfile(null);
-      } finally {
-        this.setIsProfile(true);
+
+    async asyncGetProfile(silent = false) {
+      this.isProfile = true;
+      const response = await getProfile();
+      this.isProfile = false;
+
+      if (response.status !== "success") {
+        this.profile = null;
+        if (silent) {
+          removeAccessToken();
+          return;
+        }
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.profile = response.data.user;
     },
-    async asyncPutProfile(name: string, email: string): Promise<void> {
-      try {
-        const message = await userApi.putProfile(name, email);
-        this.setProfile(await userApi.getProfile());
-        void showSuccessDialog(message);
-        this.setIsChangeProfile(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal mengubah profil"));
-        this.setIsChangeProfile(false);
+
+    async asyncChangeProfile(name: string, email: string) {
+      this.isProfileChange = true;
+      this.isProfileChanged = false;
+
+      const response = await putProfile(name, email);
+      this.isProfileChange = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.profile = response.data.user;
+      this.isProfileChanged = true;
+      showSuccessDialog(response.message);
     },
-    async asyncPostProfilePhoto(photo: File): Promise<void> {
-      try {
-        const message = await userApi.postProfilePhoto(photo);
-        this.setProfile(await userApi.getProfile());
-        void showSuccessDialog(message);
-        this.setIsChangeProfilePhoto(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal mengubah foto profil"));
-        this.setIsChangeProfilePhoto(false);
+
+    async asyncChangePhoto(photo: File) {
+      this.isPhotoChange = true;
+      this.isPhotoChanged = false;
+
+      const response = await postPhoto(photo);
+      this.isPhotoChange = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.isPhotoChanged = true;
+      showSuccessDialog(response.message);
+      await this.asyncGetProfile();
     },
-    async asyncPutProfilePassword(
-      oldPassword: string,
+
+    async asyncChangePassword(
+      password: string,
       newPassword: string,
       newPasswordConfirmation: string
-    ): Promise<void> {
-      try {
-        const message = await userApi.putProfilePassword(
-          oldPassword,
-          newPassword,
-          newPasswordConfirmation
-        );
-        void showSuccessDialog(message);
-        this.setIsChangeProfilePassword(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal mengubah kata sandi"));
-        this.setIsChangeProfilePassword(false);
+    ) {
+      this.isPasswordChange = true;
+      this.isPasswordChanged = false;
+
+      const response = await putPassword(
+        password,
+        newPassword,
+        newPasswordConfirmation
+      );
+      this.isPasswordChange = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.isPasswordChanged = true;
+      showSuccessDialog(response.message);
     },
   },
 });

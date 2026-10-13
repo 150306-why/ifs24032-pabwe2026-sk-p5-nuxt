@@ -1,98 +1,62 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
-import { createMemoryHistory } from "vue-router";
-import { createAppRouter } from "../../../router";
-import { createMockPinia, renderWithProviders, mockUser } from "../../../test-utils";
-import apiHelper from "../../../helpers/apiHelper";
+import { h } from "vue";
+import { putAccessToken } from "../../../helpers/apiHelper";
+import { createMockPinia, renderWithProviders, StubPage } from "../../../test-utils";
+import { useUsersStore } from "../../users/states/usersStore";
+import NavbarComponent from "../components/NavbarComponent.vue";
+import SidebarComponent from "../components/SidebarComponent.vue";
 import CashFlowLayout from "./CashFlowLayout.vue";
 
-const stubs = { RouterView: { template: '<div data-testid="outlet" />' } };
+const ChildPage = { render: () => h("div", { "data-testid": "child" }, "Konten halaman") };
 
-function setup(profile: typeof mockUser | null = mockUser) {
-  const { pinia, usersStore, authStore } = createMockPinia({ profile });
-  const profileSpy = vi.spyOn(usersStore, "asyncSetProfile").mockResolvedValue();
-  const logoutSpy = vi.spyOn(authStore, "asyncSetIsAuthLogout").mockResolvedValue();
-  const router = createAppRouter(createMemoryHistory());
-  const pushSpy = vi.spyOn(router, "push").mockResolvedValue(undefined);
-  const view = renderWithProviders(CashFlowLayout, { pinia, router, stubs });
-  return { ...view, usersStore, authStore, profileSpy, logoutSpy, pushSpy };
+const routes = [
+  { path: "/", component: ChildPage },
+  { path: "/auth/login", component: StubPage },
+];
+
+async function setup() {
+  const pinia = createMockPinia();
+  const users = useUsersStore(pinia);
+  const spy = vi.spyOn(users, "asyncGetProfile").mockResolvedValue(undefined);
+  const result = await renderWithProviders(CashFlowLayout, { pinia, routes });
+  await flushPromises();
+  return { spy, ...result };
 }
 
+beforeEach(() => {
+  vi.resetAllMocks();
+});
+
 describe("CashFlowLayout", () => {
-  beforeEach(() => {
-    localStorage.clear();
+  it("memuat profil dan merender konten halaman anak", async () => {
+    putAccessToken("token");
+
+    const { wrapper, spy, router } = await setup();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(wrapper.find("[data-testid=child]").text()).toBe("Konten halaman");
+    expect(router.currentRoute.value.path).toBe("/");
   });
 
-  it("mengarahkan ke login jika tidak ada token dan menampilkan status memuat", () => {
-    const { wrapper, pushSpy, profileSpy } = setup(null);
+  it("kembali ke login bila token sudah tidak ada", async () => {
+    const { router } = await setup();
 
-    expect(pushSpy).toHaveBeenCalledWith("/auth/login");
-    expect(profileSpy).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain("Memuat sesi pengguna...");
+    expect(router.currentRoute.value.path).toBe("/auth/login");
   });
 
-  it("memuat profil jika token tersedia", () => {
-    apiHelper.putAccessToken("token");
+  it("membuka dan menutup sidebar", async () => {
+    putAccessToken("token");
+    const { wrapper } = await setup();
 
-    const { profileSpy, pushSpy } = setup(null);
+    expect(wrapper.find("[data-testid=sidebar-overlay]").exists()).toBe(false);
 
-    expect(profileSpy).toHaveBeenCalledTimes(1);
-    expect(pushSpy).not.toHaveBeenCalled();
-  });
-
-  it("menampilkan navbar, sidebar, dan konten utama saat profil tersedia", () => {
-    const { wrapper } = setup();
-
-    expect(wrapper.find("header").exists()).toBe(true);
-    expect(wrapper.find("aside").exists()).toBe(true);
-    expect(wrapper.find("main").exists()).toBe(true);
-    expect(wrapper.find('[data-testid="outlet"]').exists()).toBe(true);
-  });
-
-  it("membuka dan menutup sidebar mobile", async () => {
-    const { wrapper } = setup();
-
-    await wrapper.get('[data-testid="toggle-sidebar-btn"]').trigger("click");
-    expect(wrapper.find('[data-testid="sidebar-backdrop"]').exists()).toBe(true);
-
-    await wrapper.get('[data-testid="sidebar-backdrop"]').trigger("click");
-    expect(wrapper.find('[data-testid="sidebar-backdrop"]').exists()).toBe(false);
-  });
-
-  it("menghapus token dan kembali ke login jika profil gagal dimuat", async () => {
-    apiHelper.putAccessToken("token");
-    const { usersStore, pushSpy } = setup(null);
-
-    usersStore.setIsProfile(true);
+    wrapper.findComponent(NavbarComponent).vm.$emit("toggle");
     await flushPromises();
+    expect(wrapper.find("[data-testid=sidebar-overlay]").exists()).toBe(true);
 
-    expect(apiHelper.getAccessToken()).toBeNull();
-    expect(pushSpy).toHaveBeenCalledWith("/auth/login");
-    expect(usersStore.isProfile).toBe(false);
-  });
-
-  it("tetap di halaman jika profil berhasil dimuat", async () => {
-    apiHelper.putAccessToken("token");
-    const { usersStore, pushSpy } = setup();
-
-    usersStore.setIsProfile(true);
+    wrapper.findComponent(SidebarComponent).vm.$emit("close");
     await flushPromises();
-
-    expect(apiHelper.getAccessToken()).toBe("token");
-    expect(pushSpy).not.toHaveBeenCalled();
-  });
-
-  it("menjalankan logout dan kembali ke login setelah selesai", async () => {
-    const { wrapper, authStore, usersStore, logoutSpy, pushSpy } = setup();
-
-    await wrapper.get('[data-testid="logout-button"]').trigger("click");
-    expect(logoutSpy).toHaveBeenCalledTimes(1);
-
-    authStore.setIsAuthLogout(true);
-    await flushPromises();
-
-    expect(authStore.isAuthLogout).toBe(false);
-    expect(usersStore.profile).toBeNull();
-    expect(pushSpy).toHaveBeenCalledWith("/auth/login");
+    expect(wrapper.find("[data-testid=sidebar-overlay]").exists()).toBe(false);
   });
 });

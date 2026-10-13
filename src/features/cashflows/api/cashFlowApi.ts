@@ -1,15 +1,21 @@
-import apiHelper from "../../../helpers/apiHelper";
+import {
+  apiDelete,
+  apiGet,
+  apiPost,
+  apiPut,
+} from "../../../helpers/apiHelper";
 
 export type CashFlowType = "inflow" | "outflow";
 export type CashFlowSource = "cash" | "savings" | "loans";
 
 export interface CashFlow {
-  id: string;
+  id: number;
+  user_id: number;
   type: CashFlowType;
   source: CashFlowSource;
   label: string;
-  nominal: number;
   description: string;
+  nominal: number;
   created_at: string;
   updated_at: string;
 }
@@ -18,8 +24,8 @@ export interface CashFlowPayload {
   type: CashFlowType;
   source: CashFlowSource;
   label: string;
-  nominal: number;
   description: string;
+  nominal: number;
 }
 
 export interface CashFlowQueryParams {
@@ -30,7 +36,17 @@ export interface CashFlowQueryParams {
   end_date?: string;
 }
 
+export interface StatsQueryParams {
+  end_date?: string;
+  total_data?: number;
+}
+
+/** Bentuk statistik mentah dari API (kunci dinamis, mis. `total_inflow_cash`). */
+export type RawCashFlowStats = Record<string, number | undefined>;
+
+/** Statistik yang sudah dinormalisasi untuk ditampilkan di dashboard. */
 export interface CashFlowStats {
+  cashflow: number;
   total_inflow: number;
   total_outflow: number;
   cash: number;
@@ -38,165 +54,37 @@ export interface CashFlowStats {
   loans: number;
 }
 
-export interface CashFlowPeriodStat {
-  date?: string;
-  month?: string;
-  total_inflow?: number;
-  total_outflow?: number;
+export interface StatsSeries {
+  stats_inflow: Record<string, number>;
+  stats_outflow: Record<string, number>;
+  stats_cashflow: Record<string, number>;
 }
 
-export interface CashFlowList {
-  cashFlows: CashFlow[];
-  stats: CashFlowStats;
-}
+export const getCashFlows = (params?: CashFlowQueryParams) =>
+  apiGet<{ cash_flows: CashFlow[]; stats: RawCashFlowStats }>(
+    "/cash-flows",
+    params
+  );
 
-interface CashFlowListData {
-  cash_flows?: CashFlow[];
-  stats?: Partial<CashFlowStats>;
-}
+export const getCashFlow = (id: number | string) =>
+  apiGet<{ cash_flow: CashFlow }>(`/cash-flows/${id}`);
 
-interface CashFlowData {
-  cash_flow: CashFlow;
-}
+export const postCashFlow = (payload: CashFlowPayload) =>
+  apiPost<{ cash_flow_id: number }>("/cash-flows", payload);
 
-interface LabelsData {
-  labels?: string[];
-}
+export const putCashFlow = (id: number | string, payload: CashFlowPayload) =>
+  apiPut<null>(`/cash-flows/${id}`, payload);
 
-interface PeriodStatsData {
-  stats?: CashFlowPeriodStat[];
-}
+export const deleteCashFlow = (id: number | string) =>
+  apiDelete<null>(`/cash-flows/${id}`);
 
-export const EMPTY_STATS: CashFlowStats = {
-  total_inflow: 0,
-  total_outflow: 0,
-  cash: 0,
-  savings: 0,
-  loans: 0,
-};
+export const getLabels = () =>
+  apiGet<{ labels: string[] }>("/cash-flows/labels");
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
+export const getStatsDaily = (params?: StatsQueryParams) =>
+  apiGet<StatsSeries>("/cash-flows/stats/daily", params);
 
-const cashFlowApi = (() => {
-  const BASE_URL = `${DELCOM_BASEURL}/cash-flows`;
+export const getStatsMonthly = (params?: StatsQueryParams) =>
+  apiGet<StatsSeries>("/cash-flows/stats/monthly", params);
 
-  function _url(path = ""): string {
-    return BASE_URL + path;
-  }
-
-  function buildQuery(query: CashFlowQueryParams): string {
-    const params = new URLSearchParams();
-    Object.entries(query).forEach(([key, value]) => {
-      if (value) {
-        params.set(key, value);
-      }
-    });
-    const queryString = params.toString();
-    return queryString ? `?${queryString}` : "";
-  }
-
-  async function getCashFlows(query: CashFlowQueryParams = {}): Promise<CashFlowList> {
-    const result = await apiHelper.fetchJson<CashFlowListData>(
-      _url(buildQuery(query)),
-      { method: "GET" },
-      "Gagal mengambil data arus kas"
-    );
-
-    return {
-      cashFlows: result.data.cash_flows ?? [],
-      stats: { ...EMPTY_STATS, ...result.data.stats },
-    };
-  }
-
-  async function getCashFlowById(cashFlowId: string): Promise<CashFlow> {
-    const result = await apiHelper.fetchJson<CashFlowData>(
-      _url(`/${cashFlowId}`),
-      { method: "GET" },
-      "Gagal mengambil detail arus kas"
-    );
-
-    return result.data.cash_flow;
-  }
-
-  async function postCashFlow(payload: CashFlowPayload): Promise<string> {
-    const result = await apiHelper.fetchJson<unknown>(
-      _url(),
-      {
-        method: "POST",
-        headers: JSON_HEADERS,
-        body: JSON.stringify(payload),
-      },
-      "Gagal menambahkan catatan arus kas"
-    );
-
-    return result.message ?? "";
-  }
-
-  async function putCashFlow(cashFlowId: string, payload: CashFlowPayload): Promise<string> {
-    const result = await apiHelper.fetchJson<unknown>(
-      _url(`/${cashFlowId}`),
-      {
-        method: "PUT",
-        headers: JSON_HEADERS,
-        body: JSON.stringify(payload),
-      },
-      "Gagal mengubah catatan arus kas"
-    );
-
-    return result.message ?? "";
-  }
-
-  async function deleteCashFlow(cashFlowId: string): Promise<string> {
-    const result = await apiHelper.fetchJson<unknown>(
-      _url(`/${cashFlowId}`),
-      { method: "DELETE" },
-      "Gagal menghapus catatan arus kas"
-    );
-
-    return result.message ?? "";
-  }
-
-  async function deleteAllCashFlows(): Promise<string> {
-    const result = await apiHelper.fetchJson<unknown>(
-      _url(),
-      { method: "DELETE" },
-      "Gagal mereset seluruh catatan arus kas"
-    );
-
-    return result.message ?? "";
-  }
-
-  async function getLabels(): Promise<string[]> {
-    const result = await apiHelper.fetchJson<LabelsData>(
-      _url("/labels"),
-      { method: "GET" },
-      "Gagal mengambil daftar label"
-    );
-
-    return result.data.labels ?? [];
-  }
-
-  async function getPeriodStats(period: "daily" | "monthly"): Promise<CashFlowPeriodStat[]> {
-    const result = await apiHelper.fetchJson<PeriodStatsData>(
-      _url(`/stats/${period}`),
-      { method: "GET" },
-      "Gagal mengambil statistik arus kas"
-    );
-
-    return result.data.stats ?? [];
-  }
-
-  return {
-    getCashFlows,
-    getCashFlowById,
-    postCashFlow,
-    putCashFlow,
-    deleteCashFlow,
-    deleteAllCashFlows,
-    getLabels,
-    getDailyStats: (): Promise<CashFlowPeriodStat[]> => getPeriodStats("daily"),
-    getMonthlyStats: (): Promise<CashFlowPeriodStat[]> => getPeriodStats("monthly"),
-  };
-})();
-
-export default cashFlowApi;
+export const deleteAllCashFlows = () => apiDelete<null>("/cash-flows");

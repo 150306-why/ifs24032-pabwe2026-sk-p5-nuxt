@@ -1,18 +1,21 @@
 import { ref, type Ref } from "vue";
 
-export type InputChange = Event | string;
-export type UseInputResult = [Ref<string>, (event: InputChange) => void, (value: string) => void];
+/**
+ * Composable untuk mengelola nilai input form.
+ * Mengembalikan tuple: [nilai reaktif, handler perubahan (event input), fungsi reset].
+ */
+export function useInput(
+  initialValue: string
+): [Ref<string>, (event: Event) => void, () => void] {
+  const value = ref(initialValue);
 
-export default function useInput(defaultValue = ""): UseInputResult {
-  const value = ref<string>(defaultValue);
+  const onChange = (event: Event) => {
+    value.value = (event.target as HTMLInputElement).value;
+  };
 
-  function handleValueChange(event: InputChange): void {
-    value.value = typeof event === "string" ? event : (event.target as HTMLInputElement).value;
-  }
+  const reset = () => {
+    value.value = initialValue;
+  };
 
-  function setValue(newValue: string): void {
-    value.value = newValue;
-  }
-
-  return [value, handleValueChange, setValue];
+  return [value, onChange, reset];
 }

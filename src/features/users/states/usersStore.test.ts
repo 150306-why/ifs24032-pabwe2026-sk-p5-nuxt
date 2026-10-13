@@ -1,128 +1,175 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { setActivePinia, createPinia } from "pinia";
-import { useUsersStore } from "./usersStore";
-import userApi from "../api/userApi";
-import * as toolsHelper from "../../../helpers/toolsHelper";
-import { mockUser } from "../../../test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../api/userApi");
+vi.mock("../api/userApi", () => ({
+  getUsers: vi.fn(),
+  getProfile: vi.fn(),
+  putProfile: vi.fn(),
+  postPhoto: vi.fn(),
+  putPassword: vi.fn(),
+}));
 vi.mock("../../../helpers/toolsHelper", () => ({
-  showSuccessDialog: vi.fn(),
   showErrorDialog: vi.fn(),
-  getErrorMessage: (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback),
+  showSuccessDialog: vi.fn(),
 }));
 
-describe("usersStore", () => {
-  let store: ReturnType<typeof useUsersStore>;
+import {
+  getProfile,
+  getUsers,
+  postPhoto,
+  putPassword,
+  putProfile,
+  type User,
+} from "../api/userApi";
+import { getAccessToken, putAccessToken } from "../../../helpers/apiHelper";
+import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+import { createMockPinia } from "../../../test-utils";
+import { useUsersStore } from "./usersStore";
 
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    store = useUsersStore();
-    vi.clearAllMocks();
+const user: User = {
+  id: 1,
+  name: "Delcom Testing",
+  email: "testing@delcom.org",
+  email_verified_at: null,
+  photo: null,
+  created_at: "2024-10-05T02:53:38.000000Z",
+  updated_at: "2024-10-05T02:53:38.000000Z",
+};
+
+const success = (data: unknown, message = "Berhasil") => ({
+  status: "success",
+  message,
+  data,
+});
+const fail = (message = "Gagal") => ({ status: "fail", message, data: null });
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  createMockPinia();
+});
+
+describe("usersStore", () => {
+  it("asyncGetUsers mengisi daftar pengguna", async () => {
+    vi.mocked(getUsers).mockResolvedValue(success({ users: [user] }));
+    const store = useUsersStore();
+
+    await store.asyncGetUsers();
+
+    expect(store.users).toEqual([user]);
+    expect(store.isUsers).toBe(false);
   });
 
-  it("memiliki state awal yang benar", () => {
+  it("asyncGetUsers menampilkan error saat gagal", async () => {
+    vi.mocked(getUsers).mockResolvedValue(fail("Unauthenticated."));
+    const store = useUsersStore();
+
+    await store.asyncGetUsers();
+
     expect(store.users).toEqual([]);
-    expect(store.profile).toBeNull();
+    expect(showErrorDialog).toHaveBeenCalledWith("Unauthenticated.");
+  });
+
+  it("asyncGetProfile mengisi profil", async () => {
+    vi.mocked(getProfile).mockResolvedValue(success({ user }));
+    const store = useUsersStore();
+
+    await store.asyncGetProfile();
+
+    expect(store.profile).toEqual(user);
     expect(store.isProfile).toBe(false);
   });
 
-  it("memperbarui state lewat setter", () => {
-    store.setUsers([mockUser]);
-    store.setProfile(mockUser);
-    store.setIsProfile(true);
-    store.setIsChangeProfile(true);
-    store.setIsChangeProfilePhoto(true);
-    store.setIsChangeProfilePassword(true);
+  it("asyncGetProfile menampilkan error saat gagal", async () => {
+    vi.mocked(getProfile).mockResolvedValue(fail());
+    const store = useUsersStore();
 
-    expect(store.users).toEqual([mockUser]);
-    expect(store.profile).toEqual(mockUser);
-    expect([store.isProfile, store.isChangeProfile, store.isChangeProfilePhoto, store.isChangeProfilePassword]).toEqual([true, true, true, true]);
-  });
+    await store.asyncGetProfile();
 
-  it("asyncSetUsers mengisi daftar pengguna, atau mengosongkannya saat gagal", async () => {
-    vi.mocked(userApi.getUsers).mockResolvedValueOnce([mockUser]);
-    await store.asyncSetUsers();
-    expect(store.users).toEqual([mockUser]);
-
-    vi.mocked(userApi.getUsers).mockRejectedValueOnce(new Error("gagal"));
-    await store.asyncSetUsers();
-    expect(store.users).toEqual([]);
-  });
-
-  it("asyncSetProfile mengisi profil, atau null saat gagal", async () => {
-    vi.mocked(userApi.getProfile).mockResolvedValueOnce(mockUser);
-    await store.asyncSetProfile();
-    expect(store.profile).toEqual(mockUser);
-    expect(store.isProfile).toBe(true);
-
-    vi.mocked(userApi.getProfile).mockRejectedValueOnce(new Error("gagal"));
-    await store.asyncSetProfile();
     expect(store.profile).toBeNull();
+    expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
   });
 
-  describe("asyncPutProfile", () => {
-    it("memperbarui profil dan menampilkan dialog sukses", async () => {
-      vi.mocked(userApi.putProfile).mockResolvedValueOnce("Profil diubah");
-      vi.mocked(userApi.getProfile).mockResolvedValueOnce({ ...mockUser, name: "Baru" });
+  it("asyncGetProfile silent menghapus token tanpa dialog saat gagal", async () => {
+    putAccessToken("expired");
+    vi.mocked(getProfile).mockResolvedValue(fail("Unauthenticated."));
+    const store = useUsersStore();
 
-      await store.asyncPutProfile("Baru", mockUser.email);
+    await store.asyncGetProfile(true);
 
-      expect(store.profile?.name).toBe("Baru");
-      expect(toolsHelper.showSuccessDialog).toHaveBeenCalledWith("Profil diubah");
-      expect(store.isChangeProfile).toBe(true);
-    });
-
-    it("menampilkan dialog error saat gagal", async () => {
-      vi.mocked(userApi.putProfile).mockRejectedValueOnce(new Error("Email dipakai"));
-
-      await store.asyncPutProfile("Baru", "x@y.z");
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Email dipakai");
-      expect(store.isChangeProfile).toBe(false);
-    });
+    expect(store.profile).toBeNull();
+    expect(getAccessToken()).toBeNull();
+    expect(showErrorDialog).not.toHaveBeenCalled();
   });
 
-  describe("asyncPostProfilePhoto", () => {
-    it("mengunggah foto dan memuat ulang profil", async () => {
-      vi.mocked(userApi.postProfilePhoto).mockResolvedValueOnce("Foto diubah");
-      vi.mocked(userApi.getProfile).mockResolvedValueOnce(mockUser);
+  it("asyncChangeProfile memperbarui profil", async () => {
+    const updated = { ...user, name: "Baru" };
+    vi.mocked(putProfile).mockResolvedValue(success({ user: updated }, "Berhasil mengubah data"));
+    const store = useUsersStore();
 
-      await store.asyncPostProfilePhoto(new File(["x"], "a.png"));
+    await store.asyncChangeProfile("Baru", user.email);
 
-      expect(toolsHelper.showSuccessDialog).toHaveBeenCalledWith("Foto diubah");
-      expect(store.profile).toEqual(mockUser);
-      expect(store.isChangeProfilePhoto).toBe(true);
-    });
-
-    it("menampilkan dialog error saat gagal", async () => {
-      vi.mocked(userApi.postProfilePhoto).mockRejectedValueOnce("bukan error");
-
-      await store.asyncPostProfilePhoto(new File(["x"], "a.png"));
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Gagal mengubah foto profil");
-      expect(store.isChangeProfilePhoto).toBe(false);
-    });
+    expect(putProfile).toHaveBeenCalledWith("Baru", user.email);
+    expect(store.profile).toEqual(updated);
+    expect(store.isProfileChanged).toBe(true);
+    expect(store.isProfileChange).toBe(false);
+    expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil mengubah data");
   });
 
-  describe("asyncPutProfilePassword", () => {
-    it("mengubah kata sandi dengan sukses", async () => {
-      vi.mocked(userApi.putProfilePassword).mockResolvedValueOnce("Sandi diubah");
+  it("asyncChangeProfile menampilkan error saat gagal", async () => {
+    vi.mocked(putProfile).mockResolvedValue(fail());
+    const store = useUsersStore();
 
-      await store.asyncPutProfilePassword("lama", "baru123", "baru123");
+    await store.asyncChangeProfile("Baru", user.email);
 
-      expect(userApi.putProfilePassword).toHaveBeenCalledWith("lama", "baru123", "baru123");
-      expect(toolsHelper.showSuccessDialog).toHaveBeenCalledWith("Sandi diubah");
-      expect(store.isChangeProfilePassword).toBe(true);
-    });
+    expect(store.isProfileChanged).toBe(false);
+    expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+  });
 
-    it("menampilkan dialog error saat gagal", async () => {
-      vi.mocked(userApi.putProfilePassword).mockRejectedValueOnce(new Error("Sandi lama salah"));
+  it("asyncChangePhoto mengunggah lalu memuat ulang profil", async () => {
+    const file = new File(["x"], "foto.png");
+    vi.mocked(postPhoto).mockResolvedValue(success(null, "Berhasil mengubah foto"));
+    vi.mocked(getProfile).mockResolvedValue(success({ user }));
+    const store = useUsersStore();
 
-      await store.asyncPutProfilePassword("x", "y", "y");
+    await store.asyncChangePhoto(file);
 
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Sandi lama salah");
-      expect(store.isChangeProfilePassword).toBe(false);
-    });
+    expect(postPhoto).toHaveBeenCalledWith(file);
+    expect(store.isPhotoChanged).toBe(true);
+    expect(store.isPhotoChange).toBe(false);
+    expect(getProfile).toHaveBeenCalled();
+    expect(store.profile).toEqual(user);
+    expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil mengubah foto");
+  });
+
+  it("asyncChangePhoto menampilkan error saat gagal", async () => {
+    vi.mocked(postPhoto).mockResolvedValue(fail());
+    const store = useUsersStore();
+
+    await store.asyncChangePhoto(new File(["x"], "foto.png"));
+
+    expect(store.isPhotoChanged).toBe(false);
+    expect(getProfile).not.toHaveBeenCalled();
+    expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+  });
+
+  it("asyncChangePassword berhasil", async () => {
+    vi.mocked(putPassword).mockResolvedValue(success(null, "Berhasil mengubah kata sandi"));
+    const store = useUsersStore();
+
+    await store.asyncChangePassword("lama", "baru", "baru");
+
+    expect(putPassword).toHaveBeenCalledWith("lama", "baru", "baru");
+    expect(store.isPasswordChanged).toBe(true);
+    expect(store.isPasswordChange).toBe(false);
+    expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil mengubah kata sandi");
+  });
+
+  it("asyncChangePassword menampilkan error saat gagal", async () => {
+    vi.mocked(putPassword).mockResolvedValue(fail());
+    const store = useUsersStore();
+
+    await store.asyncChangePassword("lama", "baru", "baru");
+
+    expect(store.isPasswordChanged).toBe(false);
+    expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
   });
 });

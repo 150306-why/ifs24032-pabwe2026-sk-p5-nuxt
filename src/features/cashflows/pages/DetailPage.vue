@@ -1,116 +1,133 @@
-<template>
-  <div class="mx-auto max-w-3xl space-y-6">
-    <RouterLink to="/" class="inline-flex items-center gap-2 text-sm font-semibold text-indigo-800 hover:underline" data-testid="back-link">
-      <ArrowLeft :size="16" aria-hidden="true" />
-      Kembali ke ringkasan
-    </RouterLink>
-
-    <div v-if="loading" class="py-24 text-center text-slate-700">
-      <h1 class="sr-only">Detail Transaksi</h1>
-      <output class="block">
-        <Loader2 :size="36" class="mx-auto mb-2 animate-spin text-indigo-700" aria-hidden="true" />
-        <p class="font-medium">Memuat detail transaksi...</p>
-      </output>
-    </div>
-
-    <div v-else-if="!cashFlow" class="card p-8 text-center" data-testid="not-found-state">
-      <h1 class="text-xl font-bold text-slate-900">Transaksi Tidak Ditemukan</h1>
-      <p class="mt-2 text-sm text-slate-600">Catatan arus kas yang Anda cari tidak tersedia atau sudah dihapus.</p>
-    </div>
-
-    <template v-else>
-      <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <h1 class="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Detail Transaksi</h1>
-          <p class="mt-1 text-sm text-slate-600">Rincian lengkap catatan arus kas.</p>
-        </div>
-        <div class="flex gap-3">
-          <button type="button" data-testid="detail-edit-btn" class="btn-secondary" @click="showChange = true">
-            <Pencil :size="18" aria-hidden="true" />
-            <span>Ubah</span>
-          </button>
-          <button type="button" data-testid="detail-delete-btn" class="btn-danger" @click="handleDelete">
-            <Trash2 :size="18" aria-hidden="true" />
-            <span>Hapus</span>
-          </button>
-        </div>
-      </div>
-
-      <section class="card p-6 sm:p-8" aria-labelledby="detail-label-title">
-        <h2 id="detail-label-title" class="text-xl font-bold text-slate-900">{{ cashFlow.label }}</h2>
-        <p
-          class="mt-1 text-3xl font-extrabold"
-          :class="cashFlow.type === 'inflow' ? 'text-emerald-700' : 'text-red-700'"
-          data-testid="detail-nominal"
-        >
-          {{ formatRupiah(cashFlow.nominal) }}
-        </p>
-
-        <dl class="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
-          <div v-for="row in buildRows(cashFlow)" :key="row.label">
-            <dt class="text-xs font-bold uppercase tracking-wider text-slate-700">{{ row.label }}</dt>
-            <dd class="mt-1 text-sm text-slate-900">{{ row.value }}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <ChangeModal v-if="showChange" :cash-flow="cashFlow" @close="showChange = false" @saved="loadDetail" />
-    </template>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
-import { ArrowLeft, Loader2, Pencil, Trash2 } from "lucide-vue-next";
+import { ArrowLeft, Pencil, Trash2 } from "lucide-vue-next";
 import ChangeModal from "../modals/ChangeModal.vue";
 import { useCashFlowsStore } from "../states/cashFlowsStore";
-import { CASH_FLOW_SOURCE_LABELS, CASH_FLOW_TYPE_LABELS } from "../constants";
-import type { CashFlow } from "../api/cashFlowApi";
-import { formatDate, formatRupiah, showConfirmDialog } from "../../../helpers/toolsHelper";
+import {
+  formatDateTime,
+  formatRupiah,
+  getSourceLabel,
+  getTypeBadgeClass,
+  getTypeLabel,
+  showConfirmDialog,
+} from "../../../helpers/toolsHelper";
 
 const route = useRoute();
 const router = useRouter();
-const cashFlowsStore = useCashFlowsStore();
-
-const loading = ref(true);
-const showChange = ref(false);
+const store = useCashFlowsStore();
 
 const cashFlowId = computed(() => String(route.params.cashFlowId));
-const cashFlow = computed(() => cashFlowsStore.cashFlow);
+const showChange = ref(false);
 
-function buildRows(current: CashFlow): { label: string; value: string }[] {
-  return [
-    { label: "Jenis Arus Kas", value: CASH_FLOW_TYPE_LABELS[current.type] },
-    { label: "Sumber Dana", value: CASH_FLOW_SOURCE_LABELS[current.source] },
-    { label: "Label Kategori", value: current.label },
-    { label: "Keterangan", value: current.description || "-" },
-    { label: "Dibuat Pada", value: formatDate(current.created_at) },
-    { label: "Diperbarui Pada", value: formatDate(current.updated_at) },
-  ];
+function loadDetail() {
+  return store.asyncGetCashFlow(cashFlowId.value);
 }
 
-async function loadDetail(): Promise<void> {
-  await cashFlowsStore.asyncSetCashFlow(cashFlowId.value);
-}
+onMounted(loadDetail);
 
-async function handleDelete(): Promise<void> {
-  const result = await showConfirmDialog("Hapus catatan arus kas ini?");
-  if (!result.isConfirmed) {
+async function onDelete() {
+  const confirmed = await showConfirmDialog(
+    "Hapus transaksi?",
+    "Transaksi ini akan dihapus permanen."
+  );
+
+  if (!confirmed) {
     return;
   }
 
-  await cashFlowsStore.asyncDeleteCashFlow(cashFlowId.value);
-  cashFlowsStore.setIsCashFlowDelete(false);
-  if (cashFlowsStore.isCashFlowDeleted) {
-    cashFlowsStore.setIsCashFlowDeleted(false);
-    await router.push("/");
+  await store.asyncDeleteCashFlow(cashFlowId.value);
+
+  if (store.isCashFlowDeleted) {
+    router.push("/");
   }
 }
-
-onMounted(async () => {
-  cashFlowsStore.setCashFlow(null);
-  await loadDetail();
-  loading.value = false;
-});
 </script>
+
+<template>
+  <section class="mx-auto max-w-2xl space-y-4">
+    <RouterLink
+      to="/"
+      class="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-indigo-600">
+      <ArrowLeft class="h-4 w-4" />
+      Kembali
+    </RouterLink>
+
+    <p v-if="store.isCashFlow" class="py-10 text-center text-slate-600">
+      Memuat rincian transaksi...
+    </p>
+    <p
+      v-else-if="!store.cashFlow"
+      class="rounded-2xl border border-dashed border-slate-200 bg-white py-10 text-center text-slate-600">
+      Transaksi tidak ditemukan.
+    </p>
+    <div
+      v-else
+      class="space-y-6 rounded-3xl border border-slate-100 bg-white p-6 shadow-sm"
+      data-testid="detail-card">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-wide text-slate-600">Label</p>
+          <h1 class="text-2xl font-extrabold text-slate-900">{{ store.cashFlow.label }}</h1>
+        </div>
+        <span
+          class="rounded-full px-3 py-1 text-xs font-bold"
+          :class="getTypeBadgeClass(store.cashFlow.type)">
+          {{ getTypeLabel(store.cashFlow.type) }}
+        </span>
+      </div>
+
+      <p class="text-3xl font-extrabold text-slate-900" data-testid="detail-nominal">
+        {{ formatRupiah(store.cashFlow.nominal) }}
+      </p>
+
+      <dl class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <dt class="text-xs font-bold uppercase tracking-wide text-slate-600">Sumber Dana</dt>
+          <dd class="mt-1 font-semibold text-slate-800">
+            {{ getSourceLabel(store.cashFlow.source) }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-bold uppercase tracking-wide text-slate-600">Keterangan</dt>
+          <dd class="mt-1 text-slate-800" data-testid="detail-description">
+            {{ store.cashFlow.description || "-" }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-bold uppercase tracking-wide text-slate-600">Dibuat</dt>
+          <dd class="mt-1 text-slate-800">{{ formatDateTime(store.cashFlow.created_at) }}</dd>
+        </div>
+        <div>
+          <dt class="text-xs font-bold uppercase tracking-wide text-slate-600">Diperbarui</dt>
+          <dd class="mt-1 text-slate-800">{{ formatDateTime(store.cashFlow.updated_at) }}</dd>
+        </div>
+      </dl>
+
+      <div class="flex justify-end gap-2 border-t border-slate-100 pt-4">
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          data-testid="edit-button"
+          @click="showChange = true">
+          <Pencil class="h-4 w-4" />
+          Ubah
+        </button>
+        <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700"
+          data-testid="delete-button"
+          @click="onDelete">
+          <Trash2 class="h-4 w-4" />
+          Hapus
+        </button>
+      </div>
+    </div>
+
+    <ChangeModal
+      :show="showChange"
+      :cash-flow="store.cashFlow"
+      @close="showChange = false"
+      @saved="loadDetail" />
+  </section>
+</template>

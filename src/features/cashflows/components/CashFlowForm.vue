@@ -1,85 +1,18 @@
-<template>
-  <form class="space-y-4" @submit.prevent="handleSubmit">
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <FormField :id="`${idPrefix}-type`" label="Jenis Arus Kas" required>
-        <select :id="`${idPrefix}-type`" v-model="type" :data-testid="`${idPrefix}-type-select`" class="field-input">
-          <option v-for="(text, value) in CASH_FLOW_TYPE_LABELS" :key="value" :value="value">{{ text }}</option>
-        </select>
-      </FormField>
-
-      <FormField :id="`${idPrefix}-source`" label="Sumber Dana" required>
-        <select :id="`${idPrefix}-source`" v-model="source" :data-testid="`${idPrefix}-source-select`" class="field-input">
-          <option v-for="(text, value) in CASH_FLOW_SOURCE_LABELS" :key="value" :value="value">{{ text }}</option>
-        </select>
-      </FormField>
-    </div>
-
-    <FormField :id="`${idPrefix}-label`" label="Label Kategori" required>
-      <input
-        :id="`${idPrefix}-label`"
-        v-model="label"
-        type="text"
-        :list="`${idPrefix}-label-options`"
-        :data-testid="`${idPrefix}-label-input`"
-        placeholder="Contoh: Gaji, Makan, Transportasi"
-        class="field-input"
-        required
-      />
-      <datalist :id="`${idPrefix}-label-options`">
-        <option v-for="item in cashFlowsStore.labels" :key="item" :value="item" />
-      </datalist>
-    </FormField>
-
-    <FormField :id="`${idPrefix}-nominal`" label="Nominal (Rupiah)" required>
-      <input
-        :id="`${idPrefix}-nominal`"
-        v-model="nominal"
-        type="number"
-        min="1"
-        step="1"
-        inputmode="numeric"
-        :data-testid="`${idPrefix}-nominal-input`"
-        placeholder="Contoh: 50000"
-        class="field-input"
-        required
-      />
-    </FormField>
-
-    <FormField :id="`${idPrefix}-description`" label="Keterangan">
-      <textarea
-        :id="`${idPrefix}-description`"
-        v-model="description"
-        rows="3"
-        :data-testid="`${idPrefix}-description-input`"
-        placeholder="Catatan tambahan (opsional)"
-        class="field-input"
-      />
-    </FormField>
-
-    <div class="flex items-center justify-end gap-3 pt-2">
-      <button type="button" :data-testid="`${idPrefix}-cancel-btn`" :disabled="loading" class="btn-secondary" @click="emit('cancel')">
-        Batal
-      </button>
-      <button type="submit" :data-testid="`${idPrefix}-submit-btn`" :disabled="loading" class="btn-primary">
-        {{ loading ? "Menyimpan..." : submitLabel }}
-      </button>
-    </div>
-  </form>
-</template>
-
 <script setup lang="ts">
-import { ref } from "vue";
-import FormField from "../../common/components/FormField.vue";
-import { useCashFlowsStore } from "../states/cashFlowsStore";
+import { reactive, watch } from "vue";
+import { Save } from "lucide-vue-next";
+import type {
+  CashFlowPayload,
+  CashFlowSource,
+  CashFlowType,
+} from "../api/cashFlowApi";
 import { showErrorDialog } from "../../../helpers/toolsHelper";
-import { CASH_FLOW_SOURCE_LABELS, CASH_FLOW_TYPE_LABELS } from "../constants";
-import type { CashFlowPayload, CashFlowSource, CashFlowType } from "../api/cashFlowApi";
 
 const props = defineProps<{
-  initial: CashFlowPayload;
-  idPrefix: string;
-  submitLabel: string;
+  initial: CashFlowPayload | null;
+  labels: string[];
   loading: boolean;
+  submitText: string;
 }>();
 
 const emit = defineEmits<{
@@ -87,33 +20,120 @@ const emit = defineEmits<{
   (e: "cancel"): void;
 }>();
 
-const cashFlowsStore = useCashFlowsStore();
+const form = reactive({
+  type: "inflow" as CashFlowType,
+  source: "cash" as CashFlowSource,
+  label: "",
+  nominal: "",
+  description: "",
+});
 
-const type = ref<CashFlowType>(props.initial.type);
-const source = ref<CashFlowSource>(props.initial.source);
-const label = ref(props.initial.label);
-const nominal = ref(String(props.initial.nominal));
-const description = ref(props.initial.description);
+watch(
+  () => props.initial,
+  (initial) => {
+    if (initial) {
+      form.type = initial.type;
+      form.source = initial.source;
+      form.label = initial.label;
+      form.nominal = String(initial.nominal);
+      form.description = initial.description;
+    }
+  },
+  { immediate: true }
+);
 
-function handleSubmit(): void {
-  const nominalValue = Number(nominal.value);
+function onSubmit() {
+  const nominal = Number(form.nominal);
 
-  if (!label.value.trim()) {
-    void showErrorDialog("Label kategori tidak boleh kosong");
-    return;
-  }
-
-  if (Number.isNaN(nominalValue) || nominalValue <= 0) {
-    void showErrorDialog("Nominal harus berupa angka lebih dari 0");
+  if (!form.label.trim() || !(nominal > 0)) {
+    showErrorDialog("Label dan nominal (lebih dari 0) wajib diisi");
     return;
   }
 
   emit("submit", {
-    type: type.value,
-    source: source.value,
-    label: label.value.trim(),
-    nominal: nominalValue,
-    description: description.value.trim(),
+    type: form.type,
+    source: form.source,
+    label: form.label.trim(),
+    nominal,
+    description: form.description.trim(),
   });
 }
+
+const inputClass =
+  "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100";
+const labelClass = "mb-1 block text-xs font-bold uppercase tracking-wide text-slate-600";
 </script>
+
+<template>
+  <form class="space-y-4" data-testid="cash-flow-form" @submit.prevent="onSubmit">
+    <div class="grid gap-4 sm:grid-cols-2">
+      <div>
+        <label for="cf-type" :class="labelClass">Jenis Arus Kas</label>
+        <select id="cf-type" v-model="form.type" :class="inputClass">
+          <option value="inflow">Pemasukan (Inflow)</option>
+          <option value="outflow">Pengeluaran (Outflow)</option>
+        </select>
+      </div>
+      <div>
+        <label for="cf-source" :class="labelClass">Sumber Dana</label>
+        <select id="cf-source" v-model="form.source" :class="inputClass">
+          <option value="cash">Tunai</option>
+          <option value="savings">Tabungan</option>
+          <option value="loans">Pinjaman</option>
+        </select>
+      </div>
+    </div>
+
+    <div>
+      <label for="cf-label" :class="labelClass">Label Kategori</label>
+      <input
+        id="cf-label"
+        v-model="form.label"
+        type="text"
+        list="cf-label-options"
+        placeholder="mis. gaji, alat-mandi"
+        :class="inputClass" />
+      <datalist id="cf-label-options">
+        <option v-for="label in labels" :key="label" :value="label" />
+      </datalist>
+    </div>
+
+    <div>
+      <label for="cf-nominal" :class="labelClass">Nominal (Rupiah)</label>
+      <input
+        id="cf-nominal"
+        v-model="form.nominal"
+        type="number"
+        min="1"
+        placeholder="0"
+        :class="inputClass" />
+    </div>
+
+    <div>
+      <label for="cf-description" :class="labelClass">Keterangan</label>
+      <textarea
+        id="cf-description"
+        v-model="form.description"
+        rows="3"
+        placeholder="Catatan singkat transaksi"
+        :class="inputClass" />
+    </div>
+
+    <div class="flex justify-end gap-2 pt-2">
+      <button
+        type="button"
+        class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+        data-testid="cancel-button"
+        @click="emit('cancel')">
+        Batal
+      </button>
+      <button
+        type="submit"
+        class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+        :disabled="loading">
+        <Save class="h-4 w-4" />
+        {{ loading ? "Menyimpan..." : submitText }}
+      </button>
+    </div>
+  </form>
+</template>

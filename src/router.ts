@@ -1,15 +1,8 @@
-import { createRouter, createWebHistory, type Router, type RouterHistory } from "vue-router";
+import { createRouter, createWebHistory, type RouterHistory } from "vue-router";
 import { routes } from "./routes";
 
-export { routes } from "./routes";
-
-export function createAppRouter(history: RouterHistory = createWebHistory()): Router {
-  return createRouter({
-    history,
-    routes,
-  });
+export function createAppRouter(history: RouterHistory = createWebHistory()) {
+  return createRouter({ history, routes });
 }
 
-const router = createAppRouter();
-
-export default router;
+export default createAppRouter();

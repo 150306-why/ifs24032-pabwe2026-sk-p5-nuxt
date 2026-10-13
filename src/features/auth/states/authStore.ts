@@ -1,79 +1,81 @@
 import { defineStore } from "pinia";
-import authApi from "../api/authApi";
-import apiHelper from "../../../helpers/apiHelper";
-import { getErrorMessage, showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+import { postLogin, postLogout, postRegister } from "../api/authApi";
+import {
+  getAccessToken,
+  getErrorMessage,
+  putAccessToken,
+  removeAccessToken,
+} from "../../../helpers/apiHelper";
+import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
 
 export interface AuthState {
-  isAuthRegister: boolean;
-  isAuthRegistered: boolean;
+  token: string | null;
   isAuthLogin: boolean;
   isAuthLoggedIn: boolean;
+  isAuthRegister: boolean;
+  isAuthRegistered: boolean;
   isAuthLogout: boolean;
   isAuthLoggedOut: boolean;
 }
 
 export const useAuthStore = defineStore("auth", {
   state: (): AuthState => ({
-    isAuthRegister: false,
-    isAuthRegistered: false,
+    token: getAccessToken(),
     isAuthLogin: false,
     isAuthLoggedIn: false,
+    isAuthRegister: false,
+    isAuthRegistered: false,
     isAuthLogout: false,
     isAuthLoggedOut: false,
   }),
+  getters: {
+    isAuthenticated: (state): boolean => !!state.token,
+  },
   actions: {
-    setIsAuthRegister(status: boolean): void {
-      this.isAuthRegister = status;
-    },
-    setIsAuthRegistered(status: boolean): void {
-      this.isAuthRegistered = status;
-    },
-    setIsAuthLogin(status: boolean): void {
-      this.isAuthLogin = status;
-    },
-    setIsAuthLoggedIn(status: boolean): void {
-      this.isAuthLoggedIn = status;
-    },
-    setIsAuthLogout(status: boolean): void {
-      this.isAuthLogout = status;
-    },
-    setIsAuthLoggedOut(status: boolean): void {
-      this.isAuthLoggedOut = status;
-    },
-    async asyncSetIsAuthRegister(name: string, email: string, password: string): Promise<void> {
-      try {
-        const message = await authApi.postRegister(name, email, password);
-        void showSuccessDialog(message);
-        this.setIsAuthRegistered(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal melakukan pendaftaran"));
-        this.setIsAuthRegistered(false);
-      } finally {
-        this.setIsAuthRegister(true);
+    async asyncLogin(email: string, password: string) {
+      this.isAuthLogin = true;
+      this.isAuthLoggedIn = false;
+
+      const response = await postLogin(email, password);
+      this.isAuthLogin = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.token = response.data.token;
+      putAccessToken(response.data.token);
+      this.isAuthLoggedIn = true;
     },
-    async asyncSetIsAuthLogin(email: string, password: string): Promise<void> {
-      try {
-        const result = await authApi.postLogin(email, password);
-        apiHelper.putAccessToken(result.token);
-        this.setIsAuthLoggedIn(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal login"));
-        this.setIsAuthLoggedIn(false);
-      } finally {
-        this.setIsAuthLogin(true);
+
+    async asyncRegister(name: string, email: string, password: string) {
+      this.isAuthRegister = true;
+      this.isAuthRegistered = false;
+
+      const response = await postRegister(name, email, password);
+      this.isAuthRegister = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.isAuthRegistered = true;
+      showSuccessDialog(response.message);
     },
-    async asyncSetIsAuthLogout(): Promise<void> {
-      try {
-        await authApi.postLogout();
-      } catch {
-        // Kegagalan backend diabaikan: token lokal tetap harus dibersihkan.
-      } finally {
-        apiHelper.putAccessToken(null);
-        this.setIsAuthLoggedOut(true);
-        this.setIsAuthLogout(true);
-      }
+
+    async asyncLogout() {
+      this.isAuthLogout = true;
+      this.isAuthLoggedOut = false;
+
+      // Token dicabut di server; sesi lokal tetap dibersihkan apa pun hasilnya.
+      await postLogout();
+
+      removeAccessToken();
+      this.token = null;
+      this.isAuthLogout = false;
+      this.isAuthLoggedOut = true;
     },
   },
 });

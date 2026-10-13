@@ -1,136 +1,96 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import cashFlowApi, { EMPTY_STATS, type CashFlowPayload } from "./cashFlowApi";
-import { mockCashFlow, mockJsonResponse, mockStats } from "../../../test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const BASE = "https://open-api.delcom.org/api/v1/cash-flows";
+vi.mock("../../../helpers/apiHelper", () => ({
+  apiGet: vi.fn(),
+  apiPost: vi.fn(),
+  apiPut: vi.fn(),
+  apiDelete: vi.fn(),
+}));
+
+import { apiDelete, apiGet, apiPost, apiPut } from "../../../helpers/apiHelper";
+import {
+  deleteAllCashFlows,
+  deleteCashFlow,
+  getCashFlow,
+  getCashFlows,
+  getLabels,
+  getStatsDaily,
+  getStatsMonthly,
+  postCashFlow,
+  putCashFlow,
+  type CashFlowPayload,
+} from "./cashFlowApi";
 
 const payload: CashFlowPayload = {
-  type: "outflow",
-  source: "savings",
-  label: "Makan",
-  nominal: 25000,
-  description: "Makan siang",
+  type: "inflow",
+  source: "cash",
+  label: "gaji",
+  description: "Gaji bulanan",
+  nominal: 2500000,
 };
 
+beforeEach(() => {
+  vi.resetAllMocks();
+});
+
 describe("cashFlowApi", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    localStorage.clear();
+  it("getCashFlows meneruskan parameter filter", async () => {
+    const response = { status: "success", message: "ok", data: { cash_flows: [], stats: {} } };
+    vi.mocked(apiGet).mockResolvedValue(response);
+
+    await expect(getCashFlows({ type: "inflow", label: "gaji" })).resolves.toBe(response);
+    expect(apiGet).toHaveBeenCalledWith("/cash-flows", { type: "inflow", label: "gaji" });
   });
 
-  describe("getCashFlows", () => {
-    it("mengambil daftar tanpa filter beserta statistik", async () => {
-      const mockFetch = vi.fn().mockResolvedValue(
-        mockJsonResponse({ success: true, data: { cash_flows: [mockCashFlow], stats: mockStats } })
-      );
-      vi.stubGlobal("fetch", mockFetch);
+  it("getCashFlows tanpa filter", async () => {
+    await getCashFlows();
 
-      const result = await cashFlowApi.getCashFlows();
-
-      expect(result).toEqual({ cashFlows: [mockCashFlow], stats: mockStats });
-      expect(mockFetch).toHaveBeenCalledWith(BASE, expect.objectContaining({ method: "GET" }));
-    });
-
-    it("hanya menyertakan filter yang terisi pada query string", async () => {
-      const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, data: {} }));
-      vi.stubGlobal("fetch", mockFetch);
-
-      const result = await cashFlowApi.getCashFlows({
-        type: "inflow",
-        source: "",
-        label: "Gaji",
-        start_date: "2026-01-01",
-        end_date: "2026-01-31",
-      });
-
-      expect(result).toEqual({ cashFlows: [], stats: EMPTY_STATS });
-      expect(mockFetch).toHaveBeenCalledWith(
-        `${BASE}?type=inflow&label=Gaji&start_date=2026-01-01&end_date=2026-01-31`,
-        expect.anything()
-      );
-    });
-
-    it("melempar error saat gagal", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: false, message: "Token tidak valid", data: null })));
-
-      await expect(cashFlowApi.getCashFlows()).rejects.toThrow("Token tidak valid");
-    });
+    expect(apiGet).toHaveBeenCalledWith("/cash-flows", undefined);
   });
 
-  it("getCashFlowById mengambil detail", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, data: { cash_flow: mockCashFlow } }));
-    vi.stubGlobal("fetch", mockFetch);
+  it("getCashFlow memanggil detail berdasarkan ID", async () => {
+    await getCashFlow(4);
 
-    expect(await cashFlowApi.getCashFlowById("cf-1")).toEqual(mockCashFlow);
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/cf-1`, expect.anything());
+    expect(apiGet).toHaveBeenCalledWith("/cash-flows/4");
   });
 
   it("postCashFlow mengirim payload", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "Ditambahkan" }));
-    vi.stubGlobal("fetch", mockFetch);
+    await postCashFlow(payload);
 
-    expect(await cashFlowApi.postCashFlow(payload)).toBe("Ditambahkan");
-    expect(mockFetch).toHaveBeenCalledWith(BASE, expect.objectContaining({ method: "POST", body: JSON.stringify(payload) }));
+    expect(apiPost).toHaveBeenCalledWith("/cash-flows", payload);
   });
 
-  it("putCashFlow memperbarui catatan", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "Diubah" }));
-    vi.stubGlobal("fetch", mockFetch);
+  it("putCashFlow memperbarui berdasarkan ID", async () => {
+    await putCashFlow(4, payload);
 
-    expect(await cashFlowApi.putCashFlow("cf-1", payload)).toBe("Diubah");
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/cf-1`, expect.objectContaining({ method: "PUT" }));
+    expect(apiPut).toHaveBeenCalledWith("/cash-flows/4", payload);
   });
 
-  it("deleteCashFlow menghapus satu catatan", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "Dihapus" }));
-    vi.stubGlobal("fetch", mockFetch);
+  it("deleteCashFlow menghapus berdasarkan ID", async () => {
+    await deleteCashFlow("4");
 
-    expect(await cashFlowApi.deleteCashFlow("cf-1")).toBe("Dihapus");
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/cf-1`, expect.objectContaining({ method: "DELETE" }));
+    expect(apiDelete).toHaveBeenCalledWith("/cash-flows/4");
   });
 
-  it("deleteAllCashFlows mereset seluruh catatan", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "Direset" }));
-    vi.stubGlobal("fetch", mockFetch);
+  it("getLabels memanggil /cash-flows/labels", async () => {
+    await getLabels();
 
-    expect(await cashFlowApi.deleteAllCashFlows()).toBe("Direset");
-    expect(mockFetch).toHaveBeenCalledWith(BASE, expect.objectContaining({ method: "DELETE" }));
+    expect(apiGet).toHaveBeenCalledWith("/cash-flows/labels");
   });
 
-  it.each([
-    ["postCashFlow", () => cashFlowApi.postCashFlow(payload)],
-    ["putCashFlow", () => cashFlowApi.putCashFlow("cf-1", payload)],
-    ["deleteCashFlow", () => cashFlowApi.deleteCashFlow("cf-1")],
-    ["deleteAllCashFlows", () => cashFlowApi.deleteAllCashFlows()],
-  ])("%s memberi string kosong jika server tidak mengirim pesan", async (_name, action) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: true })));
+  it("getStatsDaily dan getStatsMonthly meneruskan parameter", async () => {
+    await getStatsDaily({ total_data: 7 });
+    await getStatsMonthly({ end_date: "2024-10-05 23:59:59" });
 
-    expect(await action()).toBe("");
+    expect(apiGet).toHaveBeenNthCalledWith(1, "/cash-flows/stats/daily", { total_data: 7 });
+    expect(apiGet).toHaveBeenNthCalledWith(2, "/cash-flows/stats/monthly", {
+      end_date: "2024-10-05 23:59:59",
+    });
   });
 
-  it("getLabels mengembalikan daftar label atau array kosong", async () => {
-    const mockFetch = vi
-      .fn()
-      .mockResolvedValueOnce(mockJsonResponse({ success: true, data: { labels: ["Gaji", "Makan"] } }))
-      .mockResolvedValueOnce(mockJsonResponse({ success: true, data: {} }));
-    vi.stubGlobal("fetch", mockFetch);
+  it("deleteAllCashFlows memanggil DELETE /cash-flows", async () => {
+    await deleteAllCashFlows();
 
-    expect(await cashFlowApi.getLabels()).toEqual(["Gaji", "Makan"]);
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/labels`, expect.anything());
-    expect(await cashFlowApi.getLabels()).toEqual([]);
-  });
-
-  it("getDailyStats dan getMonthlyStats mengambil statistik periode", async () => {
-    const daily = [{ date: "2026-02-01", total_inflow: 1, total_outflow: 2 }];
-    const mockFetch = vi
-      .fn()
-      .mockResolvedValueOnce(mockJsonResponse({ success: true, data: { stats: daily } }))
-      .mockResolvedValueOnce(mockJsonResponse({ success: true, data: {} }));
-    vi.stubGlobal("fetch", mockFetch);
-
-    expect(await cashFlowApi.getDailyStats()).toEqual(daily);
-    expect(mockFetch).toHaveBeenNthCalledWith(1, `${BASE}/stats/daily`, expect.anything());
-    expect(await cashFlowApi.getMonthlyStats()).toEqual([]);
-    expect(mockFetch).toHaveBeenNthCalledWith(2, `${BASE}/stats/monthly`, expect.anything());
+    expect(apiDelete).toHaveBeenCalledWith("/cash-flows");
   });
 });

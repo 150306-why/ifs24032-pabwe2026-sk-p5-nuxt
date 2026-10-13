@@ -1,212 +1,207 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
-import { createMockPinia, renderWithProviders, mockUser } from "../../../test-utils";
+
+vi.mock("../../../helpers/toolsHelper", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../helpers/toolsHelper")>();
+  return { ...actual, showErrorDialog: vi.fn(), showSuccessDialog: vi.fn() };
+});
+
+import { showErrorDialog } from "../../../helpers/toolsHelper";
+import { createMockPinia, renderWithProviders } from "../../../test-utils";
+import { useUsersStore } from "../states/usersStore";
+import type { User } from "../api/userApi";
 import ProfilePage from "./ProfilePage.vue";
-import * as toolsHelper from "../../../helpers/toolsHelper";
 
-vi.mock("../../../helpers/toolsHelper", () => ({
-  showErrorDialog: vi.fn(),
-  showSuccessDialog: vi.fn(),
-  getErrorMessage: () => "error",
-  secureUrl: (url: string | null | undefined) => url ?? "",
-  resolvePhotoUrl: (url: string | null | undefined) => url ?? "",
-}));
+const profile: User = {
+  id: 1,
+  name: "Abdullah Ubaid",
+  email: "ifs24032@del.ac.id",
+  email_verified_at: null,
+  photo: null,
+  created_at: "2024-10-05T02:53:38.000000Z",
+  updated_at: "2024-10-05T02:53:38.000000Z",
+};
 
-function setup(profile: typeof mockUser | null = mockUser) {
-  const { pinia, usersStore } = createMockPinia({ profile });
-  const view = renderWithProviders(ProfilePage, { pinia });
-  return { ...view, usersStore };
+async function setup(initial: Partial<{ profile: User | null }> = {}) {
+  const pinia = createMockPinia();
+  const store = useUsersStore(pinia);
+  const spies = {
+    getProfile: vi.spyOn(store, "asyncGetProfile").mockResolvedValue(undefined),
+    changeProfile: vi.spyOn(store, "asyncChangeProfile").mockResolvedValue(undefined),
+    changePhoto: vi.spyOn(store, "asyncChangePhoto").mockResolvedValue(undefined),
+    changePassword: vi.spyOn(store, "asyncChangePassword").mockResolvedValue(undefined),
+  };
+  store.$patch(initial);
+  const result = await renderWithProviders(ProfilePage, { pinia });
+  return { store, spies, ...result };
 }
 
-function pickFile(wrapper: ReturnType<typeof setup>["wrapper"], files: unknown) {
-  const input = wrapper.get('[data-testid="profile-photo-file-input"]');
+async function selectFile(
+  wrapper: Awaited<ReturnType<typeof setup>>["wrapper"],
+  files: unknown
+) {
+  const input = wrapper.find("[data-testid=photo-input]");
   Object.defineProperty(input.element, "files", { value: files, configurable: true });
-  return input.trigger("change");
+  await input.trigger("change");
+  await flushPromises();
 }
 
-function fileList(file: File): FileList {
-  return Object.assign([file], { item: (index: number) => [file][index] ?? null }) as unknown as FileList;
+async function fillPassword(
+  wrapper: Awaited<ReturnType<typeof setup>>["wrapper"],
+  values: [string, string, string]
+) {
+  await wrapper.find("#profile-password").setValue(values[0]);
+  await wrapper.find("#profile-new-password").setValue(values[1]);
+  await wrapper.find("#profile-confirm-password").setValue(values[2]);
 }
+
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
 describe("ProfilePage", () => {
-  it("tidak merender apa pun jika profil belum ada, lalu mengisi form saat profil tersedia", async () => {
-    const { wrapper, usersStore } = setup(null);
-    expect(wrapper.find("h1").exists()).toBe(false);
+  it("memuat profil dan mengisi formulir saat profil tersedia kemudian", async () => {
+    const { wrapper, store, spies } = await setup();
 
-    usersStore.setProfile(mockUser);
+    expect(spies.getProfile).toHaveBeenCalledTimes(1);
+    expect((wrapper.find("#profile-name").element as HTMLInputElement).value).toBe("");
+
+    store.$patch({ profile });
     await flushPromises();
 
-    expect((wrapper.get('[data-testid="profile-name-input"]').element as HTMLInputElement).value).toBe("Budi Santoso");
-    expect((wrapper.get('[data-testid="profile-email-input"]').element as HTMLInputElement).value).toBe("budi@del.ac.id");
+    expect((wrapper.find("#profile-name").element as HTMLInputElement).value).toBe(
+      "Abdullah Ubaid"
+    );
+    expect((wrapper.find("#profile-email").element as HTMLInputElement).value).toBe(
+      "ifs24032@del.ac.id"
+    );
   });
 
-  it("mengosongkan watcher dengan aman saat profil kembali null", async () => {
-    const { wrapper, usersStore } = setup();
+  it("menampilkan foto bila tersedia dan inisial bila tidak", async () => {
+    const withPhoto = await setup({
+      profile: { ...profile, photo: "http://127.0.0.1/img/a.png" },
+    });
+    expect(withPhoto.wrapper.find("img").attributes("src")).toBe("http://127.0.0.1/img/a.png");
 
-    usersStore.setProfile(null);
+    const withoutPhoto = await setup({ profile });
+    expect(withoutPhoto.wrapper.find("img").exists()).toBe(false);
+    expect(withoutPhoto.wrapper.text()).toContain("A");
+  });
+
+  it("menolak simpan profil bila kolom kosong", async () => {
+    const { wrapper, spies } = await setup();
+
+    await wrapper.find("[data-testid=profile-form]").trigger("submit");
+
+    expect(showErrorDialog).toHaveBeenCalledWith("Nama dan email wajib diisi");
+    expect(spies.changeProfile).not.toHaveBeenCalled();
+  });
+
+  it("menyimpan profil", async () => {
+    const { wrapper, spies } = await setup({ profile });
+
+    await wrapper.find("#profile-name").setValue(" Nama Baru ");
+    await wrapper.find("[data-testid=profile-form]").trigger("submit");
+
+    expect(spies.changeProfile).toHaveBeenCalledWith("Nama Baru", "ifs24032@del.ac.id");
+  });
+
+  it("menyimpan profil dengan email yang diubah", async () => {
+    const { wrapper, spies } = await setup({ profile });
+
+    await wrapper.find("#profile-email").setValue(" baru@del.ac.id ");
+    await wrapper.find("[data-testid=profile-form]").trigger("submit");
+
+    expect(spies.changeProfile).toHaveBeenCalledWith("Abdullah Ubaid", "baru@del.ac.id");
+  });
+
+  it("mengabaikan pemilihan foto bila files null atau kosong", async () => {
+    const { wrapper, spies } = await setup();
+
+    await selectFile(wrapper, null);
+    await selectFile(wrapper, []);
+
+    expect(spies.changePhoto).not.toHaveBeenCalled();
+  });
+
+  it("mengunggah foto yang dipilih", async () => {
+    const { wrapper, spies } = await setup();
+    const file = new File(["x"], "foto.png", { type: "image/png" });
+
+    await selectFile(wrapper, [file]);
+
+    expect(spies.changePhoto).toHaveBeenCalledWith(file);
+  });
+
+  it("menolak ubah kata sandi bila kolom wajib kosong", async () => {
+    const { wrapper, spies } = await setup();
+
+    await wrapper.find("[data-testid=password-form]").trigger("submit");
+
+    expect(showErrorDialog).toHaveBeenCalledWith(
+      "Kata sandi lama dan kata sandi baru wajib diisi"
+    );
+    expect(spies.changePassword).not.toHaveBeenCalled();
+  });
+
+  it("menolak ubah kata sandi bila hanya kata sandi lama yang diisi", async () => {
+    const { wrapper, spies } = await setup();
+
+    await fillPassword(wrapper, ["lama", "", ""]);
+    await wrapper.find("[data-testid=password-form]").trigger("submit");
+
+    expect(showErrorDialog).toHaveBeenCalledWith(
+      "Kata sandi lama dan kata sandi baru wajib diisi"
+    );
+    expect(spies.changePassword).not.toHaveBeenCalled();
+  });
+
+  it("menolak ubah kata sandi bila konfirmasi tidak cocok", async () => {
+    const { wrapper, spies } = await setup();
+
+    await fillPassword(wrapper, ["lama", "baru123", "beda"]);
+    await wrapper.find("[data-testid=password-form]").trigger("submit");
+
+    expect(showErrorDialog).toHaveBeenCalledWith("Konfirmasi kata sandi baru tidak cocok");
+    expect(spies.changePassword).not.toHaveBeenCalled();
+  });
+
+  it("mengosongkan kolom setelah kata sandi berhasil diubah", async () => {
+    const { wrapper, store, spies } = await setup();
+    spies.changePassword.mockImplementation(async () => {
+      store.isPasswordChanged = true;
+    });
+
+    await fillPassword(wrapper, ["lama", "baru123", "baru123"]);
+    await wrapper.find("[data-testid=password-form]").trigger("submit");
     await flushPromises();
 
-    expect(wrapper.find("h1").exists()).toBe(false);
+    expect(spies.changePassword).toHaveBeenCalledWith("lama", "baru123", "baru123");
+    expect((wrapper.find("#profile-password").element as HTMLInputElement).value).toBe("");
+    expect((wrapper.find("#profile-new-password").element as HTMLInputElement).value).toBe("");
+    expect((wrapper.find("#profile-confirm-password").element as HTMLInputElement).value).toBe("");
   });
 
-  it("menampilkan inisial atau foto profil", async () => {
-    const { wrapper, usersStore } = setup();
-    expect(wrapper.find("img").exists()).toBe(false);
-    expect(wrapper.text()).toContain("B");
+  it("mempertahankan kolom bila ubah kata sandi gagal", async () => {
+    const { wrapper } = await setup();
 
-    usersStore.setProfile({ ...mockUser, photo: "https://img.test/a.png" } as never);
+    await fillPassword(wrapper, ["lama", "baru123", "baru123"]);
+    await wrapper.find("[data-testid=password-form]").trigger("submit");
     await flushPromises();
 
-    expect(wrapper.get("img").attributes("alt")).toBe("Foto Budi Santoso");
+    expect((wrapper.find("#profile-password").element as HTMLInputElement).value).toBe("lama");
   });
 
-  describe("ubah biodata", () => {
-    it("menolak nama atau email kosong", async () => {
-      const { wrapper, usersStore } = setup();
-      const putSpy = vi.spyOn(usersStore, "asyncPutProfile");
+  it("menampilkan status proses pada tombol dan label", async () => {
+    const { wrapper, store } = await setup();
 
-      await wrapper.get('[data-testid="profile-name-input"]').setValue("  ");
-      await wrapper.findAll("form")[0]?.trigger("submit");
+    store.$patch({ isPhotoChange: true, isProfileChange: true, isPasswordChange: true });
+    await flushPromises();
 
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Nama dan email tidak boleh kosong");
-      expect(putSpy).not.toHaveBeenCalled();
-    });
-
-    it("menolak email kosong", async () => {
-      const { wrapper } = setup();
-
-      await wrapper.get('[data-testid="profile-email-input"]').setValue("");
-      await wrapper.findAll("form")[0]?.trigger("submit");
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Nama dan email tidak boleh kosong");
-    });
-
-    it("menyimpan perubahan dan menampilkan status loading", async () => {
-      const { wrapper, usersStore } = setup();
-      let finish: () => void = () => undefined;
-      const putSpy = vi.spyOn(usersStore, "asyncPutProfile").mockImplementation(
-        () => new Promise<void>((resolve) => { finish = resolve; })
-      );
-
-      await wrapper.get('[data-testid="profile-name-input"]').setValue(" Budi Baru ");
-      await wrapper.findAll("form")[0]?.trigger("submit");
-
-      expect(putSpy).toHaveBeenCalledWith("Budi Baru", "budi@del.ac.id");
-      expect(wrapper.get('[data-testid="submit-profile-btn"]').text()).toBe("Menyimpan Perubahan...");
-
-      finish();
-      await flushPromises();
-      expect(wrapper.get('[data-testid="submit-profile-btn"]').text()).toBe("Simpan Perubahan");
-    });
-  });
-
-  describe("unggah foto", () => {
-    it("mengabaikan jika tidak ada berkas", async () => {
-      const { wrapper, usersStore } = setup();
-      const photoSpy = vi.spyOn(usersStore, "asyncPostProfilePhoto");
-
-      await pickFile(wrapper, null);
-      await pickFile(wrapper, Object.assign([], { item: () => null }));
-
-      expect(photoSpy).not.toHaveBeenCalled();
-    });
-
-    it("menolak berkas bukan gambar", async () => {
-      const { wrapper, usersStore } = setup();
-      const photoSpy = vi.spyOn(usersStore, "asyncPostProfilePhoto");
-
-      await pickFile(wrapper, fileList(new File(["x"], "a.pdf", { type: "application/pdf" })));
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Pilih file gambar yang valid");
-      expect(photoSpy).not.toHaveBeenCalled();
-    });
-
-    it("menolak gambar yang lebih dari 3MB", async () => {
-      const { wrapper, usersStore } = setup();
-      const photoSpy = vi.spyOn(usersStore, "asyncPostProfilePhoto");
-      const big = new File(["x"], "besar.png", { type: "image/png" });
-      Object.defineProperty(big, "size", { value: 4 * 1024 * 1024 });
-
-      await pickFile(wrapper, fileList(big));
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Ukuran file foto maksimal 3MB");
-      expect(photoSpy).not.toHaveBeenCalled();
-    });
-
-    it("mengunggah gambar yang valid", async () => {
-      const { wrapper, usersStore } = setup();
-      const photoSpy = vi.spyOn(usersStore, "asyncPostProfilePhoto").mockImplementation(async () => {
-        usersStore.setIsChangeProfilePhoto(true);
-      });
-      const file = new File(["x"], "ok.png", { type: "image/png" });
-
-      await pickFile(wrapper, fileList(file));
-      await flushPromises();
-
-      expect(photoSpy).toHaveBeenCalledWith(file);
-      expect(usersStore.isChangeProfilePhoto).toBe(false);
-    });
-
-    it("menampilkan ikon loading selama unggah", async () => {
-      const { wrapper, usersStore } = setup();
-      vi.spyOn(usersStore, "asyncPostProfilePhoto").mockImplementation(() => new Promise<void>(() => undefined));
-
-      await pickFile(wrapper, fileList(new File(["x"], "ok.png", { type: "image/png" })));
-
-      expect(wrapper.find('[data-testid="upload-profile-photo-btn"] .animate-spin').exists()).toBe(true);
-    });
-  });
-
-  describe("ubah kata sandi", () => {
-    async function fillPasswords(wrapper: ReturnType<typeof setup>["wrapper"], next: string, confirm: string) {
-      await wrapper.get('[data-testid="current-password-input"]').setValue("lama");
-      await wrapper.get('[data-testid="new-password-input"]').setValue(next);
-      await wrapper.get('[data-testid="confirm-password-input"]').setValue(confirm);
-      await wrapper.findAll("form")[1]?.trigger("submit");
-      await flushPromises();
-    }
-
-    it("menolak kata sandi baru kurang dari 6 karakter", async () => {
-      const { wrapper } = setup();
-
-      await fillPasswords(wrapper, "abc", "abc");
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Kata sandi baru minimal 6 karakter");
-    });
-
-    it("menolak konfirmasi yang tidak cocok", async () => {
-      const { wrapper } = setup();
-
-      await fillPasswords(wrapper, "baru123", "baru999");
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Konfirmasi kata sandi tidak cocok");
-    });
-
-    it("mengosongkan form setelah berhasil", async () => {
-      const { wrapper, usersStore } = setup();
-      const passwordSpy = vi.spyOn(usersStore, "asyncPutProfilePassword").mockImplementation(async () => {
-        usersStore.setIsChangeProfilePassword(true);
-      });
-
-      await fillPasswords(wrapper, "baru123", "baru123");
-
-      expect(passwordSpy).toHaveBeenCalledWith("lama", "baru123", "baru123");
-      expect((wrapper.get('[data-testid="new-password-input"]').element as HTMLInputElement).value).toBe("");
-      expect(usersStore.isChangeProfilePassword).toBe(false);
-    });
-
-    it("mempertahankan isian jika gagal dan menampilkan status loading saat proses", async () => {
-      const { wrapper, usersStore } = setup();
-      vi.spyOn(usersStore, "asyncPutProfilePassword").mockImplementation(async () => {
-        usersStore.setIsChangeProfilePassword(false);
-      });
-
-      await fillPasswords(wrapper, "baru123", "baru123");
-      expect((wrapper.get('[data-testid="new-password-input"]').element as HTMLInputElement).value).toBe("baru123");
-
-      vi.spyOn(usersStore, "asyncPutProfilePassword").mockImplementation(() => new Promise<void>(() => undefined));
-      await wrapper.findAll("form")[1]?.trigger("submit");
-      expect(wrapper.get('[data-testid="submit-password-btn"]').text()).toBe("Memperbarui Kata Sandi...");
-    });
+    expect(wrapper.text()).toContain("Mengunggah...");
+    expect(wrapper.findAll("button[type=submit]").map((b) => b.text())).toEqual([
+      "Menyimpan...",
+      "Menyimpan...",
+    ]);
   });
 });

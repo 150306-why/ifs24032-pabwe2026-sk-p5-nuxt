@@ -1,121 +1,122 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderWithProviders } from "../../../test-utils";
-import CashFlowForm from "./CashFlowForm.vue";
-import * as toolsHelper from "../../../helpers/toolsHelper";
-import type { CashFlowPayload } from "../api/cashFlowApi";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mount } from "@vue/test-utils";
 
-vi.mock("../../../helpers/toolsHelper", () => ({
-  showErrorDialog: vi.fn(),
-}));
+vi.mock("../../../helpers/toolsHelper", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../helpers/toolsHelper")>();
+  return { ...actual, showErrorDialog: vi.fn() };
+});
+
+import { showErrorDialog } from "../../../helpers/toolsHelper";
+import type { CashFlowPayload } from "../api/cashFlowApi";
+import CashFlowForm from "./CashFlowForm.vue";
+
+const baseProps = {
+  initial: null as CashFlowPayload | null,
+  labels: ["gaji", "alat-mandi"],
+  loading: false,
+  submitText: "Simpan Transaksi",
+};
 
 const initial: CashFlowPayload = {
   type: "outflow",
   source: "savings",
-  label: "Makan",
-  nominal: 25000,
-  description: "Makan siang",
+  label: "alat-elektronik",
+  description: "Membeli keyboard",
+  nominal: 400000,
 };
 
-function renderForm(overrides: Partial<{ loading: boolean; initial: CashFlowPayload; labels: string[] }> = {}) {
-  return renderWithProviders(CashFlowForm, {
-    props: {
-      initial: overrides.initial ?? initial,
-      idPrefix: "uji",
-      submitLabel: "Simpan",
-      loading: overrides.loading ?? false,
-    },
-    preloadedState: { labels: overrides.labels ?? [] },
-  });
-}
+const value = (wrapper: ReturnType<typeof mount>, selector: string) =>
+  (wrapper.find(selector).element as HTMLInputElement).value;
+
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
 describe("CashFlowForm", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it("memakai nilai bawaan saat initial null", () => {
+    const wrapper = mount(CashFlowForm, { props: baseProps });
+
+    expect(value(wrapper, "#cf-type")).toBe("inflow");
+    expect(value(wrapper, "#cf-source")).toBe("cash");
+    expect(value(wrapper, "#cf-label")).toBe("");
+    expect(value(wrapper, "#cf-nominal")).toBe("");
+    expect(wrapper.findAll("datalist option")).toHaveLength(2);
+    expect(wrapper.find("button[type=submit]").text()).toBe("Simpan Transaksi");
   });
 
-  it("mengisi form dengan data awal", () => {
-    const { wrapper } = renderForm();
+  it("mengisi formulir dari data initial", () => {
+    const wrapper = mount(CashFlowForm, { props: { ...baseProps, initial } });
 
-    expect((wrapper.get('[data-testid="uji-type-select"]').element as HTMLSelectElement).value).toBe("outflow");
-    expect((wrapper.get('[data-testid="uji-source-select"]').element as HTMLSelectElement).value).toBe("savings");
-    expect((wrapper.get('[data-testid="uji-label-input"]').element as HTMLInputElement).value).toBe("Makan");
-    expect((wrapper.get('[data-testid="uji-nominal-input"]').element as HTMLInputElement).value).toBe("25000");
-    expect((wrapper.get('[data-testid="uji-description-input"]').element as HTMLTextAreaElement).value).toBe("Makan siang");
+    expect(value(wrapper, "#cf-type")).toBe("outflow");
+    expect(value(wrapper, "#cf-source")).toBe("savings");
+    expect(value(wrapper, "#cf-label")).toBe("alat-elektronik");
+    expect(value(wrapper, "#cf-nominal")).toBe("400000");
+    expect(value(wrapper, "#cf-description")).toBe("Membeli keyboard");
   });
 
-  it("menyediakan saran label dari store", () => {
-    const { wrapper } = renderForm({ labels: ["Gaji", "Makan"] });
+  it("menolak submit bila label kosong", async () => {
+    const wrapper = mount(CashFlowForm, { props: baseProps });
 
-    const options = wrapper.findAll("datalist option").map((option) => option.attributes("value"));
-    expect(options).toEqual(["Gaji", "Makan"]);
+    await wrapper.find("#cf-nominal").setValue("1000");
+    await wrapper.find("form").trigger("submit");
+
+    expect(showErrorDialog).toHaveBeenCalledWith("Label dan nominal (lebih dari 0) wajib diisi");
+    expect(wrapper.emitted("submit")).toBeUndefined();
   });
 
-  it("memancarkan payload yang sudah dirapikan saat disubmit", async () => {
-    const { wrapper } = renderForm();
+  it("menolak submit bila nominal bukan angka positif", async () => {
+    const wrapper = mount(CashFlowForm, { props: baseProps });
 
-    await wrapper.get('[data-testid="uji-type-select"]').setValue("inflow");
-    await wrapper.get('[data-testid="uji-source-select"]').setValue("loans");
-    await wrapper.get('[data-testid="uji-label-input"]').setValue("  Gaji  ");
-    await wrapper.get('[data-testid="uji-nominal-input"]').setValue("1500000");
-    await wrapper.get('[data-testid="uji-description-input"]').setValue("  Bulanan ");
-    await wrapper.get("form").trigger("submit");
+    await wrapper.find("#cf-label").setValue("gaji");
+    await wrapper.find("#cf-nominal").setValue("0");
+    await wrapper.find("form").trigger("submit");
 
-    expect(wrapper.emitted("submit")?.[0]).toEqual([
-      { type: "inflow", source: "loans", label: "Gaji", nominal: 1500000, description: "Bulanan" },
+    expect(showErrorDialog).toHaveBeenCalled();
+    expect(wrapper.emitted("submit")).toBeUndefined();
+  });
+
+  it("memancarkan payload yang sudah dirapikan", async () => {
+    const wrapper = mount(CashFlowForm, { props: baseProps });
+
+    await wrapper.find("#cf-type").setValue("outflow");
+    await wrapper.find("#cf-source").setValue("loans");
+    await wrapper.find("#cf-label").setValue("  gaji ");
+    await wrapper.find("#cf-nominal").setValue("2500000");
+    await wrapper.find("#cf-description").setValue("  Gaji bulanan ");
+    await wrapper.find("form").trigger("submit");
+
+    expect(wrapper.emitted("submit")![0]).toEqual([
+      {
+        type: "outflow",
+        source: "loans",
+        label: "gaji",
+        nominal: 2500000,
+        description: "Gaji bulanan",
+      },
     ]);
   });
 
-  it("menolak label kosong", async () => {
-    const { wrapper } = renderForm();
+  it("menampilkan status menyimpan dan menonaktifkan tombol", () => {
+    const wrapper = mount(CashFlowForm, { props: { ...baseProps, loading: true } });
 
-    await wrapper.get('[data-testid="uji-label-input"]').setValue("   ");
-    await wrapper.get("form").trigger("submit");
-
-    expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Label kategori tidak boleh kosong");
-    expect(wrapper.emitted("submit")).toBeUndefined();
+    const button = wrapper.find("button[type=submit]");
+    expect(button.text()).toBe("Menyimpan...");
+    expect(button.attributes("disabled")).toBeDefined();
   });
 
-  it.each(["0", "-5", ""])("menolak nominal tidak valid (%j)", async (value) => {
-    const { wrapper } = renderForm();
+  it("memancarkan cancel dari tombol Batal", async () => {
+    const wrapper = mount(CashFlowForm, { props: baseProps });
 
-    await wrapper.get('[data-testid="uji-nominal-input"]').setValue(value);
-    await wrapper.get("form").trigger("submit");
-
-    expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Nominal harus berupa angka lebih dari 0");
-    expect(wrapper.emitted("submit")).toBeUndefined();
-  });
-
-  it("menolak nominal bukan angka", async () => {
-    const { wrapper } = renderForm();
-    const input = wrapper.get('[data-testid="uji-nominal-input"]').element as HTMLInputElement;
-    Object.defineProperty(input, "value", { value: "abc", configurable: true });
-    await wrapper.get('[data-testid="uji-nominal-input"]').trigger("input");
-
-    await wrapper.get("form").trigger("submit");
-
-    expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Nominal harus berupa angka lebih dari 0");
-  });
-
-  it("memancarkan cancel dari tombol batal", async () => {
-    const { wrapper } = renderForm();
-
-    await wrapper.get('[data-testid="uji-cancel-btn"]').trigger("click");
+    await wrapper.find("[data-testid=cancel-button]").trigger("click");
 
     expect(wrapper.emitted("cancel")).toHaveLength(1);
   });
 
-  it("menonaktifkan tombol dan mengubah teks saat loading", () => {
-    const { wrapper } = renderForm({ loading: true });
+  it("memperbarui formulir ketika initial berubah", async () => {
+    const wrapper = mount(CashFlowForm, { props: baseProps });
 
-    const submit = wrapper.get('[data-testid="uji-submit-btn"]');
-    expect(submit.text()).toBe("Menyimpan...");
-    expect(submit.attributes("disabled")).toBeDefined();
-    expect(wrapper.get('[data-testid="uji-cancel-btn"]').attributes("disabled")).toBeDefined();
-  });
+    await wrapper.setProps({ initial });
 
-  it("menampilkan label tombol submit saat tidak loading", () => {
-    const { wrapper } = renderForm();
-
-    expect(wrapper.get('[data-testid="uji-submit-btn"]').text()).toBe("Simpan");
+    expect(value(wrapper, "#cf-label")).toBe("alat-elektronik");
   });
 });

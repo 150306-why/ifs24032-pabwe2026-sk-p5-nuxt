@@ -1,222 +1,291 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { setActivePinia, createPinia } from "pinia";
-import { useCashFlowsStore } from "./cashFlowsStore";
-import cashFlowApi, { EMPTY_STATS, type CashFlowPayload } from "../api/cashFlowApi";
-import * as toolsHelper from "../../../helpers/toolsHelper";
-import { mockCashFlow, mockStats } from "../../../test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../api/cashFlowApi", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../api/cashFlowApi")>();
-  return {
-    ...original,
-    default: {
-      getCashFlows: vi.fn(),
-      getCashFlowById: vi.fn(),
-      postCashFlow: vi.fn(),
-      putCashFlow: vi.fn(),
-      deleteCashFlow: vi.fn(),
-      deleteAllCashFlows: vi.fn(),
-      getLabels: vi.fn(),
-      getDailyStats: vi.fn(),
-      getMonthlyStats: vi.fn(),
-    },
-  };
-});
+vi.mock("../api/cashFlowApi", () => ({
+  getCashFlows: vi.fn(),
+  getCashFlow: vi.fn(),
+  postCashFlow: vi.fn(),
+  putCashFlow: vi.fn(),
+  deleteCashFlow: vi.fn(),
+  deleteAllCashFlows: vi.fn(),
+  getLabels: vi.fn(),
+  getStatsDaily: vi.fn(),
+  getStatsMonthly: vi.fn(),
+}));
 vi.mock("../../../helpers/toolsHelper", () => ({
-  showSuccessDialog: vi.fn(),
   showErrorDialog: vi.fn(),
-  getErrorMessage: (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback),
+  showSuccessDialog: vi.fn(),
 }));
 
-const payload: CashFlowPayload = {
-  type: "inflow",
-  source: "cash",
-  label: "Gaji",
-  nominal: 1000,
-  description: "",
+import * as api from "../api/cashFlowApi";
+import type { CashFlow, CashFlowPayload } from "../api/cashFlowApi";
+import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+import { createMockPinia } from "../../../test-utils";
+import { useCashFlowsStore } from "./cashFlowsStore";
+
+const item: CashFlow = {
+  id: 4,
+  user_id: 1,
+  type: "outflow",
+  source: "savings",
+  label: "alat-elektronik",
+  description: "Membeli keyboard",
+  nominal: 400000,
+  created_at: "2024-10-05T12:09:16.000000Z",
+  updated_at: "2024-10-05T12:09:16.000000Z",
 };
 
+const payload: CashFlowPayload = {
+  type: "outflow",
+  source: "savings",
+  label: "alat-elektronik",
+  description: "Membeli keyboard",
+  nominal: 400000,
+};
+
+const success = (data: unknown = null, message = "Berhasil") => ({
+  status: "success",
+  message,
+  data,
+});
+const fail = (message = "Gagal") => ({ status: "fail", message, data: null });
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  createMockPinia();
+});
+
 describe("cashFlowsStore", () => {
-  let store: ReturnType<typeof useCashFlowsStore>;
+  it("memiliki state awal kosong", () => {
+    const store = useCashFlowsStore();
 
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    store = useCashFlowsStore();
-    vi.clearAllMocks();
-  });
-
-  it("memiliki state awal yang benar", () => {
     expect(store.cashFlows).toEqual([]);
     expect(store.cashFlow).toBeNull();
-    expect(store.stats).toEqual(EMPTY_STATS);
     expect(store.labels).toEqual([]);
-    expect(store.query).toEqual({});
-    expect(store.isCashFlowsLoading).toBe(false);
+    expect(store.stats).toEqual({
+      cashflow: 0,
+      total_inflow: 0,
+      total_outflow: 0,
+      cash: 0,
+      savings: 0,
+      loans: 0,
+    });
   });
 
-  it("memperbarui state lewat setter", () => {
-    store.setCashFlows([mockCashFlow]);
-    store.setCashFlow(mockCashFlow);
-    store.setStats(mockStats);
-    store.setLabels(["Gaji"]);
-    store.setQuery({ type: "inflow" });
-    store.setIsCashFlowsLoading(true);
-    store.setIsCashFlowAdd(true);
-    store.setIsCashFlowAdded(true);
-    store.setIsCashFlowChange(true);
-    store.setIsCashFlowChanged(true);
-    store.setIsCashFlowDelete(true);
-    store.setIsCashFlowDeleted(true);
-    store.setIsCashFlowDeleteAll(true);
-    store.setIsCashFlowDeletedAll(true);
+  describe("asyncGetCashFlows", () => {
+    it("mengisi daftar dan menormalisasi statistik", async () => {
+      vi.mocked(api.getCashFlows).mockResolvedValue(
+        success({
+          cash_flows: [item],
+          stats: {
+            cashflow: 2000000,
+            total_inflow: 2500000,
+            total_outflow: 500000,
+            total_inflow_cash: 2500000,
+            total_outflow_cash: 100000,
+            total_outflow_savings: 400000,
+          },
+        })
+      );
+      const store = useCashFlowsStore();
 
-    expect(store.cashFlows).toEqual([mockCashFlow]);
-    expect(store.cashFlow).toEqual(mockCashFlow);
-    expect(store.stats).toEqual(mockStats);
-    expect(store.labels).toEqual(["Gaji"]);
-    expect(store.query).toEqual({ type: "inflow" });
-    expect(
-      [
-        store.isCashFlowsLoading,
-        store.isCashFlowAdd,
-        store.isCashFlowAdded,
-        store.isCashFlowChange,
-        store.isCashFlowChanged,
-        store.isCashFlowDelete,
-        store.isCashFlowDeleted,
-        store.isCashFlowDeleteAll,
-        store.isCashFlowDeletedAll,
-      ].every(Boolean)
-    ).toBe(true);
-  });
+      await store.asyncGetCashFlows({ type: "outflow" });
 
-  describe("asyncSetCashFlows / asyncRefreshCashFlows", () => {
-    it("menyimpan query dan memuat data", async () => {
-      vi.mocked(cashFlowApi.getCashFlows).mockResolvedValueOnce({ cashFlows: [mockCashFlow], stats: mockStats });
-
-      await store.asyncSetCashFlows({ type: "inflow" });
-
-      expect(cashFlowApi.getCashFlows).toHaveBeenCalledWith({ type: "inflow" });
-      expect(store.cashFlows).toEqual([mockCashFlow]);
-      expect(store.stats).toEqual(mockStats);
-      expect(store.isCashFlowsLoading).toBe(false);
+      expect(api.getCashFlows).toHaveBeenCalledWith({ type: "outflow" });
+      expect(store.cashFlows).toEqual([item]);
+      expect(store.stats).toEqual({
+        cashflow: 2000000,
+        total_inflow: 2500000,
+        total_outflow: 500000,
+        cash: 2400000,
+        savings: -400000,
+        loans: 0,
+      });
+      expect(store.isCashFlow).toBe(false);
     });
 
-    it("mengosongkan data dan menampilkan error saat gagal", async () => {
-      store.setCashFlows([mockCashFlow]);
-      vi.mocked(cashFlowApi.getCashFlows).mockRejectedValueOnce(new Error("Server error"));
+    it("menangani respons tanpa statistik", async () => {
+      vi.mocked(api.getCashFlows).mockResolvedValue(success({ cash_flows: [] }));
+      const store = useCashFlowsStore();
 
-      await store.asyncRefreshCashFlows();
+      await store.asyncGetCashFlows();
 
       expect(store.cashFlows).toEqual([]);
-      expect(store.stats).toEqual(EMPTY_STATS);
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Server error");
-      expect(store.isCashFlowsLoading).toBe(false);
+      expect(store.stats.cashflow).toBe(0);
+    });
+
+    it("menampilkan error saat gagal", async () => {
+      vi.mocked(api.getCashFlows).mockResolvedValue(fail("Unauthenticated."));
+      const store = useCashFlowsStore();
+
+      await store.asyncGetCashFlows();
+
+      expect(showErrorDialog).toHaveBeenCalledWith("Unauthenticated.");
+      expect(store.isCashFlow).toBe(false);
     });
   });
 
-  it("asyncSetCashFlow mengisi detail, atau null saat gagal", async () => {
-    vi.mocked(cashFlowApi.getCashFlowById).mockResolvedValueOnce(mockCashFlow);
-    await store.asyncSetCashFlow("cf-1");
-    expect(store.cashFlow).toEqual(mockCashFlow);
+  describe("asyncGetCashFlow", () => {
+    it("mengisi detail", async () => {
+      vi.mocked(api.getCashFlow).mockResolvedValue(success({ cash_flow: item }));
+      const store = useCashFlowsStore();
 
-    vi.mocked(cashFlowApi.getCashFlowById).mockRejectedValueOnce(new Error("404"));
-    await store.asyncSetCashFlow("cf-x");
-    expect(store.cashFlow).toBeNull();
-  });
+      await store.asyncGetCashFlow(4);
 
-  it("asyncSetLabels mengisi label, atau kosong saat gagal", async () => {
-    vi.mocked(cashFlowApi.getLabels).mockResolvedValueOnce(["Gaji"]);
-    await store.asyncSetLabels();
-    expect(store.labels).toEqual(["Gaji"]);
-
-    vi.mocked(cashFlowApi.getLabels).mockRejectedValueOnce(new Error("gagal"));
-    await store.asyncSetLabels();
-    expect(store.labels).toEqual([]);
-  });
-
-  it("asyncSetDailyStats mengisi statistik harian, atau kosong saat gagal", async () => {
-    const daily = [{ date: "2026-02-01", total_inflow: 1, total_outflow: 0 }];
-    vi.mocked(cashFlowApi.getDailyStats).mockResolvedValueOnce(daily);
-    await store.asyncSetDailyStats();
-    expect(store.dailyStats).toEqual(daily);
-
-    vi.mocked(cashFlowApi.getDailyStats).mockRejectedValueOnce(new Error("gagal"));
-    await store.asyncSetDailyStats();
-    expect(store.dailyStats).toEqual([]);
-  });
-
-  it("asyncSetMonthlyStats mengisi statistik bulanan, atau kosong saat gagal", async () => {
-    const monthly = [{ month: "2026-02", total_inflow: 1, total_outflow: 0 }];
-    vi.mocked(cashFlowApi.getMonthlyStats).mockResolvedValueOnce(monthly);
-    await store.asyncSetMonthlyStats();
-    expect(store.monthlyStats).toEqual(monthly);
-
-    vi.mocked(cashFlowApi.getMonthlyStats).mockRejectedValueOnce(new Error("gagal"));
-    await store.asyncSetMonthlyStats();
-    expect(store.monthlyStats).toEqual([]);
-  });
-
-  describe.each([
-    {
-      name: "asyncAddCashFlow",
-      run: (s: typeof store) => s.asyncAddCashFlow(payload),
-      api: () => vi.mocked(cashFlowApi.postCashFlow),
-      done: (s: typeof store) => s.isCashFlowAdd,
-      succeeded: (s: typeof store) => s.isCashFlowAdded,
-      fallback: "Gagal menambahkan catatan arus kas",
-    },
-    {
-      name: "asyncChangeCashFlow",
-      run: (s: typeof store) => s.asyncChangeCashFlow("cf-1", payload),
-      api: () => vi.mocked(cashFlowApi.putCashFlow),
-      done: (s: typeof store) => s.isCashFlowChange,
-      succeeded: (s: typeof store) => s.isCashFlowChanged,
-      fallback: "Gagal mengubah catatan arus kas",
-    },
-    {
-      name: "asyncDeleteCashFlow",
-      run: (s: typeof store) => s.asyncDeleteCashFlow("cf-1"),
-      api: () => vi.mocked(cashFlowApi.deleteCashFlow),
-      done: (s: typeof store) => s.isCashFlowDelete,
-      succeeded: (s: typeof store) => s.isCashFlowDeleted,
-      fallback: "Gagal menghapus catatan arus kas",
-    },
-    {
-      name: "asyncDeleteAllCashFlows",
-      run: (s: typeof store) => s.asyncDeleteAllCashFlows(),
-      api: () => vi.mocked(cashFlowApi.deleteAllCashFlows),
-      done: (s: typeof store) => s.isCashFlowDeleteAll,
-      succeeded: (s: typeof store) => s.isCashFlowDeletedAll,
-      fallback: "Gagal mereset catatan arus kas",
-    },
-  ])("$name", ({ run, api, done, succeeded, fallback }) => {
-    it("berhasil dan menampilkan dialog sukses", async () => {
-      api().mockResolvedValueOnce("Berhasil");
-
-      await run(store);
-
-      expect(toolsHelper.showSuccessDialog).toHaveBeenCalledWith("Berhasil");
-      expect(succeeded(store)).toBe(true);
-      expect(done(store)).toBe(true);
+      expect(api.getCashFlow).toHaveBeenCalledWith(4);
+      expect(store.cashFlow).toEqual(item);
+      expect(store.isCashFlow).toBe(false);
     });
 
-    it("gagal dan menampilkan pesan error dari server", async () => {
-      api().mockRejectedValueOnce(new Error("Ditolak server"));
+    it("mengosongkan detail dan menampilkan error saat gagal", async () => {
+      vi.mocked(api.getCashFlow).mockResolvedValue(fail("Data tidak ditemukan"));
+      const store = useCashFlowsStore();
+      store.$patch({ cashFlow: item });
 
-      await run(store);
+      await store.asyncGetCashFlow(99);
 
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Ditolak server");
-      expect(succeeded(store)).toBe(false);
-      expect(done(store)).toBe(true);
+      expect(store.cashFlow).toBeNull();
+      expect(showErrorDialog).toHaveBeenCalledWith("Data tidak ditemukan");
+    });
+  });
+
+  describe("mutasi", () => {
+    it("asyncAddCashFlow berhasil", async () => {
+      vi.mocked(api.postCashFlow).mockResolvedValue(success({ cash_flow_id: 5 }, "Berhasil menambahkan data"));
+      const store = useCashFlowsStore();
+
+      await store.asyncAddCashFlow(payload);
+
+      expect(api.postCashFlow).toHaveBeenCalledWith(payload);
+      expect(store.isCashFlowAdded).toBe(true);
+      expect(store.isCashFlowAdd).toBe(false);
+      expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil menambahkan data");
     });
 
-    it("memakai pesan fallback jika error bukan instance Error", async () => {
-      api().mockRejectedValueOnce("aneh");
+    it("asyncAddCashFlow gagal", async () => {
+      vi.mocked(api.postCashFlow).mockResolvedValue(fail());
+      const store = useCashFlowsStore();
 
-      await run(store);
+      await store.asyncAddCashFlow(payload);
 
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith(fallback);
+      expect(store.isCashFlowAdded).toBe(false);
+      expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+    });
+
+    it("asyncChangeCashFlow berhasil", async () => {
+      vi.mocked(api.putCashFlow).mockResolvedValue(success(null, "Berhasil mengubah data"));
+      const store = useCashFlowsStore();
+
+      await store.asyncChangeCashFlow(4, payload);
+
+      expect(api.putCashFlow).toHaveBeenCalledWith(4, payload);
+      expect(store.isCashFlowChanged).toBe(true);
+      expect(store.isCashFlowChange).toBe(false);
+      expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil mengubah data");
+    });
+
+    it("asyncChangeCashFlow gagal", async () => {
+      vi.mocked(api.putCashFlow).mockResolvedValue(fail());
+      const store = useCashFlowsStore();
+
+      await store.asyncChangeCashFlow(4, payload);
+
+      expect(store.isCashFlowChanged).toBe(false);
+      expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+    });
+
+    it("asyncDeleteCashFlow berhasil", async () => {
+      vi.mocked(api.deleteCashFlow).mockResolvedValue(success(null, "Berhasil menghapus data"));
+      const store = useCashFlowsStore();
+
+      await store.asyncDeleteCashFlow(4);
+
+      expect(api.deleteCashFlow).toHaveBeenCalledWith(4);
+      expect(store.isCashFlowDeleted).toBe(true);
+      expect(store.isCashFlowDelete).toBe(false);
+      expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil menghapus data");
+    });
+
+    it("asyncDeleteCashFlow gagal", async () => {
+      vi.mocked(api.deleteCashFlow).mockResolvedValue(fail());
+      const store = useCashFlowsStore();
+
+      await store.asyncDeleteCashFlow(4);
+
+      expect(store.isCashFlowDeleted).toBe(false);
+      expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+    });
+
+    it("asyncDeleteAllCashFlows berhasil", async () => {
+      vi.mocked(api.deleteAllCashFlows).mockResolvedValue(success(null, "Semua data dihapus"));
+      const store = useCashFlowsStore();
+
+      await store.asyncDeleteAllCashFlows();
+
+      expect(store.isCashFlowDeletedAll).toBe(true);
+      expect(store.isCashFlowDeleteAll).toBe(false);
+      expect(showSuccessDialog).toHaveBeenCalledWith("Semua data dihapus");
+    });
+
+    it("asyncDeleteAllCashFlows gagal", async () => {
+      vi.mocked(api.deleteAllCashFlows).mockResolvedValue(fail());
+      const store = useCashFlowsStore();
+
+      await store.asyncDeleteAllCashFlows();
+
+      expect(store.isCashFlowDeletedAll).toBe(false);
+      expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+    });
+  });
+
+  describe("label & statistik", () => {
+    const series = {
+      stats_inflow: { "05-10-2024": 2500000 },
+      stats_outflow: { "05-10-2024": 500000 },
+      stats_cashflow: { "05-10-2024": 2000000 },
+    };
+
+    it("asyncGetLabels mengisi label", async () => {
+      vi.mocked(api.getLabels).mockResolvedValue(success({ labels: ["gaji", "alat-mandi"] }));
+      const store = useCashFlowsStore();
+
+      await store.asyncGetLabels();
+
+      expect(store.labels).toEqual(["gaji", "alat-mandi"]);
+    });
+
+    it("asyncGetLabels gagal", async () => {
+      vi.mocked(api.getLabels).mockResolvedValue(fail());
+      const store = useCashFlowsStore();
+
+      await store.asyncGetLabels();
+
+      expect(store.labels).toEqual([]);
+      expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+    });
+
+    it("asyncGetStatsDaily berhasil dan gagal", async () => {
+      const store = useCashFlowsStore();
+
+      vi.mocked(api.getStatsDaily).mockResolvedValueOnce(success(series));
+      await store.asyncGetStatsDaily({ total_data: 7 });
+      expect(api.getStatsDaily).toHaveBeenCalledWith({ total_data: 7 });
+      expect(store.statsDaily).toEqual(series);
+
+      vi.mocked(api.getStatsDaily).mockResolvedValueOnce(fail());
+      await store.asyncGetStatsDaily();
+      expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
+    });
+
+    it("asyncGetStatsMonthly berhasil dan gagal", async () => {
+      const store = useCashFlowsStore();
+
+      vi.mocked(api.getStatsMonthly).mockResolvedValueOnce(success(series));
+      await store.asyncGetStatsMonthly();
+      expect(store.statsMonthly).toEqual(series);
+
+      vi.mocked(api.getStatsMonthly).mockResolvedValueOnce(fail());
+      await store.asyncGetStatsMonthly();
+      expect(showErrorDialog).toHaveBeenCalledWith("Gagal");
     });
   });
 });

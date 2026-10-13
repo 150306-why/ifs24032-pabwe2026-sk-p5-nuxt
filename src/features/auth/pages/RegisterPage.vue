@@ -1,110 +1,94 @@
-<template>
-  <form class="space-y-4" @submit.prevent="onSubmitHandler">
-    <FormField input-id="register-name-input" label="Nama Lengkap" required>
-      <input
-        id="register-name-input"
-        v-model="name"
-        type="text"
-        autocomplete="name"
-        data-testid="register-name-input"
-        placeholder="Nama lengkap Anda"
-        class="field-input"
-        required
-      />
-    </FormField>
-
-    <FormField input-id="register-email-input" label="Alamat Email" required>
-      <input
-        id="register-email-input"
-        v-model="email"
-        type="email"
-        autocomplete="email"
-        data-testid="register-email-input"
-        placeholder="nama@email.com"
-        class="field-input"
-        required
-      />
-    </FormField>
-
-    <FormField input-id="register-password-input" label="Kata Sandi" required>
-      <input
-        id="register-password-input"
-        v-model="password"
-        type="password"
-        autocomplete="new-password"
-        data-testid="register-password-input"
-        placeholder="Minimal 6 karakter"
-        class="field-input"
-        minlength="6"
-        required
-      />
-    </FormField>
-
-    <FormField input-id="register-confirm-input" label="Ulangi Kata Sandi" required>
-      <input
-        id="register-confirm-input"
-        v-model="confirmPassword"
-        type="password"
-        autocomplete="new-password"
-        data-testid="register-confirm-input"
-        placeholder="Ulangi kata sandi"
-        class="field-input"
-        required
-      />
-    </FormField>
-
-    <div class="pt-2">
-      <button
-        id="register-submit-button"
-        type="submit"
-        data-testid="register-submit-button"
-        :disabled="loading"
-        class="btn-primary w-full"
-      >
-        <template v-if="loading">
-          <Loader2 :size="18" class="animate-spin" aria-hidden="true" />
-          <span>Mendaftarkan...</span>
-        </template>
-        <template v-else>
-          <UserPlus :size="18" :stroke-width="2.5" aria-hidden="true" />
-          <span>Daftar Sekarang</span>
-        </template>
-      </button>
-    </div>
-  </form>
-</template>
-
 <script setup lang="ts">
-import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { Loader2, UserPlus } from "lucide-vue-next";
-import FormField from "../../common/components/FormField.vue";
-import { useAuthStore } from "../states/authStore";
+import { Lock, Mail, User, UserPlus } from "lucide-vue-next";
+import { useInput } from "../../../hooks/useInput";
 import { showErrorDialog } from "../../../helpers/toolsHelper";
+import { useAuthStore } from "../states/authStore";
 
 const router = useRouter();
-const authStore = useAuthStore();
+const auth = useAuthStore();
 
-const name = ref("");
-const email = ref("");
-const password = ref("");
-const confirmPassword = ref("");
-const loading = ref(false);
+const [name, onChangeName] = useInput("");
+const [email, onChangeEmail] = useInput("");
+const [password, onChangePassword] = useInput("");
 
-async function onSubmitHandler(): Promise<void> {
-  if (password.value !== confirmPassword.value) {
-    void showErrorDialog("Konfirmasi kata sandi tidak cocok");
+async function onSubmit() {
+  if (!name.value.trim() || !email.value.trim() || !password.value) {
+    showErrorDialog("Nama, email, dan kata sandi wajib diisi");
     return;
   }
 
-  loading.value = true;
-  await authStore.asyncSetIsAuthRegister(name.value.trim(), email.value.trim(), password.value);
-  authStore.setIsAuthRegister(false);
+  await auth.asyncRegister(name.value.trim(), email.value.trim(), password.value);
 
-  if (authStore.isAuthRegistered) {
-    authStore.setIsAuthRegistered(false);
-    await router.push("/auth/login");
+  if (auth.isAuthRegistered) {
+    router.push("/auth/login");
   }
-  loading.value = false;
 }
 </script>
+
+<template>
+  <form class="space-y-4" data-testid="register-form" @submit.prevent="onSubmit">
+    <div>
+      <label
+        for="register-name-input"
+        class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-600">
+        Nama Lengkap
+      </label>
+      <div class="relative">
+        <User class="absolute left-3 top-3 h-4 w-4 text-slate-600" />
+        <input
+          id="register-name-input"
+          type="text"
+          placeholder="Nama lengkap"
+          class="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+          :value="name"
+          @input="onChangeName" />
+      </div>
+    </div>
+
+    <div>
+      <label
+        for="register-email-input"
+        class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-600">
+        Alamat Email
+      </label>
+      <div class="relative">
+        <Mail class="absolute left-3 top-3 h-4 w-4 text-slate-600" />
+        <input
+          id="register-email-input"
+          type="email"
+          placeholder="nama@email.com"
+          class="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+          :value="email"
+          @input="onChangeEmail" />
+      </div>
+    </div>
+
+    <div>
+      <label
+        for="register-password-input"
+        class="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-600">
+        Kata Sandi
+      </label>
+      <div class="relative">
+        <Lock class="absolute left-3 top-3 h-4 w-4 text-slate-600" />
+        <input
+          id="register-password-input"
+          type="password"
+          placeholder="••••••••"
+          class="w-full rounded-xl border border-slate-200 py-2.5 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+          :value="password"
+          @input="onChangePassword" />
+      </div>
+    </div>
+
+    <button
+      id="register-submit-button"
+      type="submit"
+      class="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-indigo-700 disabled:opacity-60"
+      :disabled="auth.isAuthRegister">
+      <UserPlus class="h-4 w-4" />
+      {{ auth.isAuthRegister ? "Memproses..." : "Daftar Sekarang" }}
+    </button>
+  </form>
+</template>

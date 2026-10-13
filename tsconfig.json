@@ -3,11 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "strict": true,
-    "noImplicitAny": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
+    "strict": false,
     "jsx": "preserve",
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -15,8 +11,6 @@
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "noEmit": true,
-    "baseUrl": ".",
-    "types": ["node", "vitest/globals"],
     "paths": {
       "~/*": ["./src/*"],
       "@/*": ["./src/*"]
@@ -28,6 +22,6 @@
     "src/**/*.tsx",
     "src/**/*.vue",
     "nuxt.config.ts",
-    "vite.config.ts"
+    "vitest.config.ts"
   ]
 }

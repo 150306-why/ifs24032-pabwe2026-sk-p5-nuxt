@@ -1,78 +1,41 @@
-import type { SweetAlertResult } from "sweetalert2";
+import Swal from "sweetalert2";
 
-// SweetAlert2 dimuat secara lazy: hanya diunduh saat dialog pertama kali dibutuhkan.
-async function loadSwal() {
-  return (await import("sweetalert2")).default;
-}
-
-export async function showErrorDialog(message: string): Promise<SweetAlertResult> {
-  const Swal = await loadSwal();
+export function showSuccessDialog(message: string) {
   return Swal.fire({
-    title: "Terjadi Kesalahan",
-    text: message,
-    icon: "error",
-    confirmButtonText: "Tutup",
-    confirmButtonColor: "#b91c1c",
-  });
-}
-
-export async function showWarningDialog(message: string): Promise<SweetAlertResult> {
-  const Swal = await loadSwal();
-  return Swal.fire({
-    title: "Peringatan",
-    text: message,
-    icon: "warning",
-    confirmButtonText: "Tutup",
-    confirmButtonColor: "#b45309",
-  });
-}
-
-export async function showSuccessDialog(message: string): Promise<SweetAlertResult> {
-  const Swal = await loadSwal();
-  return Swal.fire({
-    title: "Tindakan Berhasil",
-    text: message,
     icon: "success",
-    confirmButtonText: "Tutup",
-    confirmButtonColor: "#047857",
+    title: "Berhasil",
+    text: message,
+    confirmButtonColor: "#4f46e5",
   });
 }
 
-export async function showConfirmDialog(message: string): Promise<SweetAlertResult> {
-  const Swal = await loadSwal();
+export function showErrorDialog(message: string) {
   return Swal.fire({
-    title: "Konfirmasi",
+    icon: "error",
+    title: "Gagal",
     text: message,
+    confirmButtonColor: "#4f46e5",
+  });
+}
+
+export async function showConfirmDialog(
+  title: string,
+  text: string
+): Promise<boolean> {
+  const result = await Swal.fire({
     icon: "question",
+    title,
+    text,
     showCancelButton: true,
     confirmButtonText: "Ya",
-    cancelButtonText: "Tidak",
-    confirmButtonColor: "#4338ca",
-    cancelButtonColor: "#475569",
+    cancelButtonText: "Batal",
+    confirmButtonColor: "#dc2626",
   });
+
+  return result.isConfirmed;
 }
 
-export function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
-}
-
-/**
- * Foto profil dari API bisa berupa URL penuh atau path relatif (img/profile/...).
- * Path relatif dilengkapi dengan origin Delcom; http diubah menjadi https.
- */
-export function resolvePhotoUrl(photo: string | null | undefined): string {
-  if (!photo) {
-    return "";
-  }
-  if (/^https?:\/\//i.test(photo)) {
-    return photo.replace(/^http:\/\//i, "https://");
-  }
-  return `${DELCOM_ORIGIN}/${photo.replace(/^\/+/, "")}`;
-}
-
-export const secureUrl = resolvePhotoUrl;
-
-export function formatRupiah(value: number | string | null | undefined): string {
+export function formatRupiah(value: number | string): string {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
@@ -80,15 +43,69 @@ export function formatRupiah(value: number | string | null | undefined): string 
   }).format(Number(value) || 0);
 }
 
-export function formatDate(date: string | number | Date | null | undefined): string {
-  if (!date) {
+export function formatDate(value?: string | null): string {
+  if (!value) {
     return "-";
   }
-  return new Date(date).toLocaleString("id-ID", {
-    day: "2-digit",
+
+  return new Date(value).toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  });
+}
+
+export function formatDateTime(value?: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  return new Date(value).toLocaleString("id-ID", {
+    day: "numeric",
     month: "long",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Asia/Jakarta",
   });
+}
+
+export const SOURCE_LABELS: Record<string, string> = {
+  cash: "Tunai",
+  savings: "Tabungan",
+  loans: "Pinjaman",
+};
+
+export function getSourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+export function getTypeLabel(type: string): string {
+  return type === "inflow" ? "Pemasukan" : "Pengeluaran";
+}
+
+export function getTypeBadgeClass(type: string): string {
+  return type === "inflow"
+    ? "bg-emerald-100 text-emerald-700"
+    : "bg-rose-100 text-rose-700";
+}
+
+export function formatSignedRupiah(type: string, nominal: number | string): string {
+  return `${type === "inflow" ? "+" : "-"}${formatRupiah(nominal)}`;
+}
+
+/**
+ * Foto profil dari API dapat berupa URL absolut atau path relatif (mis. `img/profile/1.png`).
+ */
+export function resolvePhotoUrl(photo?: string | null): string {
+  if (!photo) {
+    return "";
+  }
+
+  if (photo.startsWith("http")) {
+    return photo;
+  }
+
+  return `${new URL(DELCOM_BASEURL).origin}/${photo.replace(/^\//, "")}`;
 }

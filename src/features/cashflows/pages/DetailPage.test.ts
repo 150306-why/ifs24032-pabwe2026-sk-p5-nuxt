@@ -1,139 +1,143 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
-import { createMemoryHistory } from "vue-router";
-import { createAppRouter } from "../../../router";
-import { createMockPinia, renderWithProviders, mockCashFlow } from "../../../test-utils";
-import DetailPage from "./DetailPage.vue";
-import ChangeModal from "../modals/ChangeModal.vue";
-import * as toolsHelper from "../../../helpers/toolsHelper";
+
+vi.mock("../../../helpers/toolsHelper", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../helpers/toolsHelper")>();
+  return { ...actual, showConfirmDialog: vi.fn(), showErrorDialog: vi.fn(), showSuccessDialog: vi.fn() };
+});
+
+import { showConfirmDialog } from "../../../helpers/toolsHelper";
+import { createMockPinia, renderWithProviders, StubPage } from "../../../test-utils";
+import { useCashFlowsStore } from "../states/cashFlowsStore";
 import type { CashFlow } from "../api/cashFlowApi";
+import ChangeModal from "../modals/ChangeModal.vue";
+import DetailPage from "./DetailPage.vue";
 
-vi.mock("../../../helpers/toolsHelper", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../helpers/toolsHelper")>()),
-  showErrorDialog: vi.fn(),
-  showSuccessDialog: vi.fn(),
-  showConfirmDialog: vi.fn(),
-}));
+const item: CashFlow = {
+  id: 4,
+  user_id: 1,
+  type: "outflow",
+  source: "savings",
+  label: "alat-elektronik",
+  description: "Membeli keyboard dan mouse",
+  nominal: 400000,
+  created_at: "2024-10-05T12:09:16.000000Z",
+  updated_at: "2024-10-05T12:09:16.000000Z",
+};
 
-async function setup(result: CashFlow | "pending" | null = mockCashFlow) {
-  const { pinia, cashFlowsStore } = createMockPinia();
-  const detailSpy = vi.spyOn(cashFlowsStore, "asyncSetCashFlow").mockImplementation(async () => {
-    if (result === "pending") {
-      await new Promise<void>(() => undefined);
-    }
-    cashFlowsStore.setCashFlow(result === "pending" ? null : result);
+const routes = [
+  { path: "/cash-flows/:cashFlowId", component: StubPage },
+  { path: "/", component: StubPage },
+];
+
+const normalize = (text: string) => text.replace(/\s/g, " ");
+
+async function setup(patch: Record<string, unknown> = {}) {
+  const pinia = createMockPinia();
+  const store = useCashFlowsStore(pinia);
+  const spies = {
+    get: vi.spyOn(store, "asyncGetCashFlow").mockResolvedValue(undefined),
+    del: vi.spyOn(store, "asyncDeleteCashFlow").mockResolvedValue(undefined),
+  };
+  store.$patch(patch);
+  const result = await renderWithProviders(DetailPage, {
+    pinia,
+    routes,
+    route: "/cash-flows/4",
   });
-  const router = createAppRouter(createMemoryHistory());
-  await router.push("/cash-flows/cf-1");
-  await router.isReady();
-  const pushSpy = vi.spyOn(router, "push").mockResolvedValue(undefined);
-  const view = renderWithProviders(DetailPage, { pinia, router });
   await flushPromises();
-  return { ...view, cashFlowsStore, detailSpy, pushSpy };
+  return { store, spies, ...result };
 }
 
+beforeEach(() => {
+  vi.resetAllMocks();
+});
+
 describe("DetailPage", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it("memuat transaksi berdasarkan ID pada rute", async () => {
+    const { spies } = await setup();
+
+    expect(spies.get).toHaveBeenCalledWith("4");
   });
 
-  it("memuat detail berdasarkan parameter rute", async () => {
-    const { detailSpy } = await setup();
+  it("menampilkan status memuat", async () => {
+    const { wrapper } = await setup({ isCashFlow: true });
 
-    expect(detailSpy).toHaveBeenCalledWith("cf-1");
+    expect(wrapper.text()).toContain("Memuat rincian transaksi");
   });
 
-  it("menampilkan rincian transaksi pemasukan", async () => {
+  it("menampilkan pesan bila transaksi tidak ditemukan", async () => {
     const { wrapper } = await setup();
 
-    expect(wrapper.get("h1").text()).toBe("Detail Transaksi");
-    expect(wrapper.get("h2").text()).toBe("Gaji");
-    expect(wrapper.get('[data-testid="detail-nominal"]').text()).toMatch(/1\.500\.000/);
-    expect(wrapper.get('[data-testid="detail-nominal"]').classes()).toContain("text-emerald-700");
-    expect(wrapper.text()).toContain("Pemasukan");
-    expect(wrapper.text()).toContain("Tunai");
-    expect(wrapper.text()).toContain("Gaji bulanan");
-    expect(wrapper.text()).toContain("Februari 2026");
+    expect(wrapper.text()).toContain("Transaksi tidak ditemukan");
+    expect(wrapper.find("[data-testid=detail-card]").exists()).toBe(false);
   });
 
-  it("menampilkan transaksi pengeluaran tanpa keterangan", async () => {
-    const { wrapper } = await setup({ ...mockCashFlow, type: "outflow", description: "" });
+  it("menampilkan rincian lengkap transaksi", async () => {
+    const { wrapper } = await setup({ cashFlow: item });
 
-    expect(wrapper.get('[data-testid="detail-nominal"]').classes()).toContain("text-red-700");
-    expect(wrapper.text()).toContain("Pengeluaran");
-    expect(wrapper.findAll("dd").map((dd) => dd.text())).toContain("-");
+    const text = normalize(wrapper.text());
+    expect(text).toContain("alat-elektronik");
+    expect(text).toContain("Pengeluaran");
+    expect(text).toContain("Tabungan");
+    expect(text).toContain("Membeli keyboard dan mouse");
+    expect(text).toContain("2024");
+    expect(normalize(wrapper.find("[data-testid=detail-nominal]").text())).toBe("Rp 400.000");
   });
 
-  it("menampilkan status loading selama data dimuat", async () => {
-    const { wrapper } = await setup("pending");
+  it("menampilkan strip bila keterangan kosong", async () => {
+    const { wrapper } = await setup({ cashFlow: { ...item, description: "" } });
 
-    expect(wrapper.get("h1").text()).toBe("Detail Transaksi");
-    expect(wrapper.text()).toContain("Memuat detail transaksi...");
+    expect(wrapper.find("[data-testid=detail-description]").text()).toBe("-");
   });
 
-  it("menampilkan pesan jika transaksi tidak ditemukan", async () => {
-    const { wrapper } = await setup(null);
+  it("membuka modal ubah, menutupnya, dan memuat ulang setelah disimpan", async () => {
+    const { wrapper, spies } = await setup({ cashFlow: item });
+    expect(wrapper.find("[data-testid=change-modal]").exists()).toBe(false);
 
-    expect(wrapper.find('[data-testid="not-found-state"]').exists()).toBe(true);
-    expect(wrapper.find('[data-testid="detail-edit-btn"]').exists()).toBe(false);
-  });
+    await wrapper.find("[data-testid=edit-button]").trigger("click");
+    expect(wrapper.find("[data-testid=change-modal]").exists()).toBe(true);
 
-  it("membuka modal ubah, memuat ulang saat tersimpan, dan menutupnya", async () => {
-    const { wrapper, detailSpy } = await setup();
-
-    await wrapper.get('[data-testid="detail-edit-btn"]').trigger("click");
-    const modal = wrapper.findComponent(ChangeModal);
-    expect(modal.exists()).toBe(true);
-
-    modal.vm.$emit("saved");
+    wrapper.findComponent(ChangeModal).vm.$emit("saved");
     await flushPromises();
-    expect(detailSpy).toHaveBeenCalledTimes(2);
+    expect(spies.get).toHaveBeenCalledTimes(2);
 
-    modal.vm.$emit("close");
+    wrapper.findComponent(ChangeModal).vm.$emit("close");
     await flushPromises();
-    expect(wrapper.findComponent(ChangeModal).exists()).toBe(false);
+    expect(wrapper.find("[data-testid=change-modal]").exists()).toBe(false);
   });
 
-  describe("hapus transaksi", () => {
-    it("kembali ke beranda setelah berhasil dihapus", async () => {
-      vi.mocked(toolsHelper.showConfirmDialog).mockResolvedValue({ isConfirmed: true } as never);
-      const { wrapper, cashFlowsStore, pushSpy } = await setup();
-      const deleteSpy = vi.spyOn(cashFlowsStore, "asyncDeleteCashFlow").mockImplementation(async () => {
-        cashFlowsStore.setIsCashFlowDeleted(true);
-        cashFlowsStore.setIsCashFlowDelete(true);
-      });
+  it("tidak menghapus bila konfirmasi dibatalkan", async () => {
+    vi.mocked(showConfirmDialog).mockResolvedValue(false);
+    const { wrapper, spies } = await setup({ cashFlow: item });
 
-      await wrapper.get('[data-testid="detail-delete-btn"]').trigger("click");
-      await flushPromises();
+    await wrapper.find("[data-testid=delete-button]").trigger("click");
+    await flushPromises();
 
-      expect(deleteSpy).toHaveBeenCalledWith("cf-1");
-      expect(pushSpy).toHaveBeenCalledWith("/");
-      expect(cashFlowsStore.isCashFlowDeleted).toBe(false);
+    expect(spies.del).not.toHaveBeenCalled();
+  });
+
+  it("menghapus transaksi lalu kembali ke beranda", async () => {
+    vi.mocked(showConfirmDialog).mockResolvedValue(true);
+    const { wrapper, store, spies, router } = await setup({ cashFlow: item });
+    spies.del.mockImplementation(async () => {
+      store.isCashFlowDeleted = true;
     });
 
-    it("tidak menghapus jika dibatalkan", async () => {
-      vi.mocked(toolsHelper.showConfirmDialog).mockResolvedValue({ isConfirmed: false } as never);
-      const { wrapper, cashFlowsStore } = await setup();
-      const deleteSpy = vi.spyOn(cashFlowsStore, "asyncDeleteCashFlow");
+    await wrapper.find("[data-testid=delete-button]").trigger("click");
+    await flushPromises();
 
-      await wrapper.get('[data-testid="detail-delete-btn"]').trigger("click");
-      await flushPromises();
+    expect(spies.del).toHaveBeenCalledWith("4");
+    expect(router.currentRoute.value.path).toBe("/");
+  });
 
-      expect(deleteSpy).not.toHaveBeenCalled();
-    });
+  it("tetap di halaman bila penghapusan gagal", async () => {
+    vi.mocked(showConfirmDialog).mockResolvedValue(true);
+    const { wrapper, router } = await setup({ cashFlow: item });
 
-    it("tetap di halaman jika penghapusan gagal", async () => {
-      vi.mocked(toolsHelper.showConfirmDialog).mockResolvedValue({ isConfirmed: true } as never);
-      const { wrapper, cashFlowsStore, pushSpy } = await setup();
-      vi.spyOn(cashFlowsStore, "asyncDeleteCashFlow").mockImplementation(async () => {
-        cashFlowsStore.setIsCashFlowDeleted(false);
-        cashFlowsStore.setIsCashFlowDelete(true);
-      });
+    await wrapper.find("[data-testid=delete-button]").trigger("click");
+    await flushPromises();
 
-      await wrapper.get('[data-testid="detail-delete-btn"]').trigger("click");
-      await flushPromises();
-
-      expect(pushSpy).not.toHaveBeenCalled();
-    });
+    expect(router.currentRoute.value.path).toBe("/cash-flows/4");
   });
 });

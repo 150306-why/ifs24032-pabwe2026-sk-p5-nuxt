@@ -1,39 +1,52 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { flushPromises } from "@vue/test-utils";
-import { createMemoryHistory } from "vue-router";
-import { createAppRouter } from "./router";
-import { renderWithProviders } from "./test-utils";
 import App from "./App.vue";
+import { putAccessToken } from "./helpers/apiHelper";
+import { renderWithProviders, StubPage } from "./test-utils";
 
-describe("App (integrasi rute)", () => {
-  it("menampilkan halaman login pada /auth/login", async () => {
-    const router = createAppRouter(createMemoryHistory());
-    const { wrapper } = renderWithProviders(App, { router });
+const routes = [
+  { path: "/", component: StubPage, meta: { requiresAuth: true } },
+  { path: "/auth/login", component: StubPage, meta: { guestOnly: true } },
+  { path: "/public", component: StubPage },
+];
 
-    await router.push("/auth/login");
+describe("App", () => {
+  it("mengarahkan tamu dari halaman terproteksi ke login", async () => {
+    const { router } = await renderWithProviders(App, { route: "/", routes });
     await flushPromises();
 
-    expect(wrapper.get("h1").text()).toBe("Delcom Cash Flow");
-    expect(wrapper.find('[data-testid="login-submit-button"]').exists()).toBe(true);
+    expect(router.currentRoute.value.path).toBe("/auth/login");
   });
 
-  it("menampilkan halaman registrasi pada /auth/register", async () => {
-    const router = createAppRouter(createMemoryHistory());
-    const { wrapper } = renderWithProviders(App, { router });
+  it("mengarahkan pengguna yang sudah login dari halaman auth ke beranda", async () => {
+    putAccessToken("token");
 
-    await router.push("/auth/register");
+    const { router } = await renderWithProviders(App, { route: "/auth/login", routes });
     await flushPromises();
 
-    expect(wrapper.find('[data-testid="register-submit-button"]').exists()).toBe(true);
+    expect(router.currentRoute.value.path).toBe("/");
   });
 
-  it("menampilkan halaman 404 untuk rute yang tidak dikenal", async () => {
-    const router = createAppRouter(createMemoryHistory());
-    const { wrapper } = renderWithProviders(App, { router });
+  it("membiarkan pengguna login tetap di halaman terproteksi", async () => {
+    putAccessToken("token");
 
-    await router.push("/halaman-tidak-ada");
+    const { router } = await renderWithProviders(App, { route: "/", routes });
     await flushPromises();
 
-    expect(wrapper.get("h1").text()).toBe("404");
+    expect(router.currentRoute.value.path).toBe("/");
+  });
+
+  it("membiarkan tamu tetap di halaman auth", async () => {
+    const { router } = await renderWithProviders(App, { route: "/auth/login", routes });
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/auth/login");
+  });
+
+  it("tidak mengganggu halaman publik", async () => {
+    const { router } = await renderWithProviders(App, { route: "/public", routes });
+    await flushPromises();
+
+    expect(router.currentRoute.value.path).toBe("/public");
   });
 });

@@ -1,12 +1,4 @@
+/// <reference types="vite/client" />
+
+// Konstanta global yang diinjeksi lewat opsi `define` pada vitest.config.ts / nuxt.config.ts
 declare const DELCOM_BASEURL: string;
-declare const DELCOM_ORIGIN: string;
-
-interface ImportMetaEnv {
-  readonly VITE_DELCOM_BASEURL: string;
-  readonly APP_PORT: string;
-  readonly PORT: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}

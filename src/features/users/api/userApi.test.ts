@@ -1,96 +1,57 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import userApi from "./userApi";
-import { mockJsonResponse, mockUser } from "../../../test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const BASE = "https://open-api.delcom.org/api/v1/users";
+vi.mock("../../../helpers/apiHelper", () => ({
+  apiGet: vi.fn(),
+  apiPost: vi.fn(),
+  apiPut: vi.fn(),
+}));
+
+import { apiGet, apiPost, apiPut } from "../../../helpers/apiHelper";
+import { getProfile, getUsers, postPhoto, putPassword, putProfile } from "./userApi";
+
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
 describe("userApi", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-    localStorage.clear();
+  it("getUsers memanggil GET /users", async () => {
+    const response = { status: "success", message: "ok", data: { users: [] } };
+    vi.mocked(apiGet).mockResolvedValue(response);
+
+    await expect(getUsers()).resolves.toBe(response);
+    expect(apiGet).toHaveBeenCalledWith("/users");
   });
 
-  it("getUsers mengembalikan daftar pengguna", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, data: { users: [mockUser] } }));
-    vi.stubGlobal("fetch", mockFetch);
+  it("getProfile memanggil GET /users/me", async () => {
+    await getProfile();
 
-    expect(await userApi.getUsers()).toEqual([mockUser]);
-    expect(mockFetch).toHaveBeenCalledWith(BASE, expect.objectContaining({ method: "GET" }));
+    expect(apiGet).toHaveBeenCalledWith("/users/me");
   });
 
-  it("getUsers mengembalikan array kosong jika data tidak ada", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: true, data: {} })));
+  it("putProfile memanggil PUT /users/me", async () => {
+    await putProfile("Nama", "a@b.c");
 
-    expect(await userApi.getUsers()).toEqual([]);
+    expect(apiPut).toHaveBeenCalledWith("/users/me", { name: "Nama", email: "a@b.c" });
   });
 
-  it("getUsers melempar error saat gagal", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: false, message: "Tidak berwenang", data: null })));
-
-    await expect(userApi.getUsers()).rejects.toThrow("Tidak berwenang");
-  });
-
-  it("getProfile mengembalikan profil aktif", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, data: { user: mockUser } }));
-    vi.stubGlobal("fetch", mockFetch);
-
-    expect(await userApi.getProfile()).toEqual(mockUser);
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/me`, expect.anything());
-  });
-
-  it("putProfile mengirim nama dan email", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "Profil diubah" }));
-    vi.stubGlobal("fetch", mockFetch);
-
-    expect(await userApi.putProfile("Budi", "budi@del.ac.id")).toBe("Profil diubah");
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${BASE}/me`,
-      expect.objectContaining({ method: "PUT", body: JSON.stringify({ name: "Budi", email: "budi@del.ac.id" }) })
-    );
-  });
-
-  it("putProfile memberi string kosong jika tanpa pesan", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: true })));
-
-    expect(await userApi.putProfile("a", "b")).toBe("");
-  });
-
-  it("postProfilePhoto mengunggah berkas sebagai FormData", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "Foto diubah" }));
-    vi.stubGlobal("fetch", mockFetch);
+  it("postPhoto mengunggah berkas sebagai FormData", async () => {
     const file = new File(["x"], "foto.png", { type: "image/png" });
 
-    expect(await userApi.postProfilePhoto(file)).toBe("Foto diubah");
+    await postPhoto(file);
 
-    const [url, options] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`${BASE}/me/photo`);
-    expect(options.body).toBeInstanceOf(FormData);
-    expect((options.body as FormData).get("photo")).toBeInstanceOf(File);
+    const [path, body] = vi.mocked(apiPost).mock.calls[0];
+    expect(path).toBe("/users/me/photo");
+    expect(body).toBeInstanceOf(FormData);
+    expect(((body as FormData).get("photo") as File).name).toBe("foto.png");
   });
 
-  it("postProfilePhoto memberi string kosong jika tanpa pesan", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: true })));
+  it("putPassword memanggil PUT /users/password", async () => {
+    await putPassword("lama", "baru", "baru");
 
-    expect(await userApi.postProfilePhoto(new File(["x"], "a.png"))).toBe("");
-  });
-
-  it("putProfilePassword mengirim kata sandi lama, baru, dan konfirmasi", async () => {
-    const mockFetch = vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "Sandi diubah" }));
-    vi.stubGlobal("fetch", mockFetch);
-
-    expect(await userApi.putProfilePassword("lama", "baru123", "baru123")).toBe("Sandi diubah");
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${BASE}/password`,
-      expect.objectContaining({
-        method: "PUT",
-        body: JSON.stringify({ password: "lama", new_password: "baru123", new_password_confirmation: "baru123" }),
-      })
-    );
-  });
-
-  it("putProfilePassword memberi string kosong jika tanpa pesan", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: true })));
-
-    expect(await userApi.putProfilePassword("a", "b", "b")).toBe("");
+    expect(apiPut).toHaveBeenCalledWith("/users/password", {
+      password: "lama",
+      new_password: "baru",
+      new_password_confirmation: "baru",
+    });
   });
 });

@@ -1,89 +1,115 @@
-export interface ApiEnvelope<T = unknown> {
-  success?: boolean;
-  status?: string;
-  message?: string;
+const ACCESS_TOKEN_KEY = "delcom_access_token";
+
+export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+
+export interface ApiOptions {
+  method: HttpMethod;
+  params?: object;
+  body?: unknown;
+}
+
+export interface ApiResponse<T = any> {
+  status: string;
+  message: string;
   data: T;
 }
 
-const TOKEN_KEY = "accessToken";
+export function getAccessToken(): string | null {
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
+}
 
-const apiHelper = (() => {
-  function normalizeUrl(url: string): string {
-    const queryIndex = url.indexOf("?");
-    const path = queryIndex === -1 ? url : url.slice(0, queryIndex);
-    const query = queryIndex === -1 ? "" : url.slice(queryIndex);
-    const fixedPath = path.endsWith("/") ? path.slice(0, -1) : path;
+export function putAccessToken(token: string): void {
+  localStorage.setItem(ACCESS_TOKEN_KEY, token);
+}
 
-    return fixedPath + query;
+export function removeAccessToken(): void {
+  localStorage.removeItem(ACCESS_TOKEN_KEY);
+}
+
+function buildUrl(path: string, params?: object): string {
+  const url = `${DELCOM_BASEURL}${path}`;
+  if (!params) {
+    return url;
   }
 
-  function getAccessToken(): string | null {
-    return localStorage.getItem(TOKEN_KEY);
-  }
-
-  function putAccessToken(token: string | null): void {
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
+  const search = new URLSearchParams();
+  Object.entries(params as Record<string, unknown>).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      search.append(key, String(value));
     }
+  });
+
+  const query = search.toString();
+  return query ? `${url}?${query}` : url;
+}
+
+/**
+ * Wrapper fetch ke REST API Delcom.
+ * - Menyisipkan header `Authorization: Bearer <token>` bila token tersedia.
+ * - Body berupa FormData dikirim apa adanya, selain itu di-serialize sebagai JSON.
+ * - Tidak pernah melempar error: kegagalan jaringan dikembalikan sebagai respons `fail`.
+ */
+export async function apiFetch<T = any>(
+  path: string,
+  options: ApiOptions
+): Promise<ApiResponse<T>> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+
+  const token = getAccessToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
   }
 
-  async function fetchData(url: string, options: RequestInit = {}): Promise<Response> {
-    const headers: Record<string, string> = {
-      ...(options.headers as Record<string, string> | undefined),
-    };
+  let body: BodyInit | undefined;
+  if (options.body instanceof FormData) {
+    body = options.body;
+  } else if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(options.body);
+  }
 
-    const token = getAccessToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
-    return fetch(normalizeUrl(url), {
-      ...options,
-      mode: "cors",
+  try {
+    const response = await fetch(buildUrl(path, options.params), {
+      method: options.method,
       headers,
+      body,
     });
-  }
 
-  function extractErrorDetails(data: unknown): string {
-    if (data === null || typeof data !== "object") {
-      return "";
-    }
-    return Object.values(data).flat().join(", ");
-  }
-
-  async function parseEnvelope<T>(response: Response, fallbackMessage: string): Promise<ApiEnvelope<T>> {
-    try {
-      return (await response.json()) as ApiEnvelope<T>;
-    } catch {
-      throw new Error(fallbackMessage);
-    }
-  }
-
-  async function fetchJson<T>(
-    url: string,
-    options: RequestInit = {},
-    fallbackMessage = "Terjadi kesalahan pada server"
-  ): Promise<ApiEnvelope<T>> {
-    const response = await fetchData(url, options);
-    const result = await parseEnvelope<T>(response, fallbackMessage);
-
-    if (result.status !== "success" && !result.success) {
-      const baseMessage = result.message || fallbackMessage;
-      const details = extractErrorDetails(result.data);
-      throw new Error(details ? `${baseMessage}: ${details}` : baseMessage);
+    if (response.status === 401) {
+      removeAccessToken();
     }
 
-    return result;
+    return (await response.json()) as ApiResponse<T>;
+  } catch {
+    return {
+      status: "fail",
+      message: "Gagal terhubung ke server",
+      data: null as T,
+    };
   }
+}
 
-  return {
-    fetchData,
-    fetchJson,
-    putAccessToken,
-    getAccessToken,
-  };
-})();
+export const apiGet = <T = any>(path: string, params?: object) =>
+  apiFetch<T>(path, { method: "GET", params });
 
-export default apiHelper;
+export const apiPost = <T = any>(path: string, body?: unknown) =>
+  apiFetch<T>(path, { method: "POST", body });
+
+export const apiPut = <T = any>(path: string, body?: unknown) =>
+  apiFetch<T>(path, { method: "PUT", body });
+
+export const apiDelete = <T = any>(path: string) =>
+  apiFetch<T>(path, { method: "DELETE" });
+
+/**
+ * Menggabungkan pesan utama dengan detail validasi per-field (bila ada).
+ */
+export function getErrorMessage(response: ApiResponse): string {
+  const details =
+    response.data && typeof response.data === "object"
+      ? Object.values(response.data).flat().join(", ")
+      : "";
+
+  return details ? `${response.message}: ${details}` : response.message;
+}
+    

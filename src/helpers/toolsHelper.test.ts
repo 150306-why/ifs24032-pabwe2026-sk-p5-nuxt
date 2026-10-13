@@ -1,106 +1,137 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("sweetalert2", () => ({ default: { fire: vi.fn() } }));
+
 import Swal from "sweetalert2";
 import {
   formatDate,
+  formatDateTime,
   formatRupiah,
-  getErrorMessage,
+  formatSignedRupiah,
+  getSourceLabel,
+  getTypeBadgeClass,
+  getTypeLabel,
   resolvePhotoUrl,
-  secureUrl,
   showConfirmDialog,
   showErrorDialog,
   showSuccessDialog,
-  showWarningDialog,
 } from "./toolsHelper";
 
-vi.mock("sweetalert2", () => ({
-  default: { fire: vi.fn() },
-}));
+const normalize = (text: string) => text.replace(/\s/g, " ");
 
-describe("toolsHelper", () => {
-  beforeEach(() => {
-    vi.mocked(Swal.fire).mockReset();
-    vi.mocked(Swal.fire).mockResolvedValue({ isConfirmed: true } as never);
-  });
+beforeEach(() => {
+  vi.mocked(Swal.fire).mockReset();
+});
 
-  it.each([
-    ["showErrorDialog", showErrorDialog, "error"],
-    ["showWarningDialog", showWarningDialog, "warning"],
-    ["showSuccessDialog", showSuccessDialog, "success"],
-  ])("%s menampilkan dialog dengan ikon yang sesuai", async (_name, dialog, icon) => {
-    const result = await dialog("Pesan uji");
-
-    expect(Swal.fire).toHaveBeenCalledWith(expect.objectContaining({ text: "Pesan uji", icon }));
-    expect(result.isConfirmed).toBe(true);
-  });
-
-  it("showConfirmDialog menampilkan tombol batal", async () => {
-    await showConfirmDialog("Yakin?");
+describe("dialog", () => {
+  it("showSuccessDialog memanggil Swal dengan ikon success", () => {
+    showSuccessDialog("Berhasil menambahkan data");
 
     expect(Swal.fire).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Yakin?", icon: "question", showCancelButton: true })
+      expect.objectContaining({ icon: "success", text: "Berhasil menambahkan data" })
     );
   });
 
-  describe("getErrorMessage", () => {
-    it("memakai pesan dari Error", () => {
-      expect(getErrorMessage(new Error("Gagal"), "Fallback")).toBe("Gagal");
-    });
+  it("showErrorDialog memanggil Swal dengan ikon error", () => {
+    showErrorDialog("Gagal");
 
-    it("memakai fallback untuk Error tanpa pesan", () => {
-      expect(getErrorMessage(new Error(""), "Fallback")).toBe("Fallback");
-    });
-
-    it("memakai fallback untuk nilai selain Error", () => {
-      expect(getErrorMessage("teks", "Fallback")).toBe("Fallback");
-    });
+    expect(Swal.fire).toHaveBeenCalledWith(
+      expect.objectContaining({ icon: "error", text: "Gagal" })
+    );
   });
 
-  describe("resolvePhotoUrl", () => {
-    it("mengembalikan string kosong untuk nilai kosong", () => {
-      expect(resolvePhotoUrl(null)).toBe("");
-      expect(resolvePhotoUrl(undefined)).toBe("");
-      expect(resolvePhotoUrl("")).toBe("");
-    });
+  it("showConfirmDialog mengembalikan true saat dikonfirmasi", async () => {
+    vi.mocked(Swal.fire).mockResolvedValue({ isConfirmed: true } as never);
 
-    it("membiarkan url https dan mengubah http menjadi https", () => {
-      expect(resolvePhotoUrl("https://a.test/x.png")).toBe("https://a.test/x.png");
-      expect(resolvePhotoUrl("http://a.test/x.png")).toBe("https://a.test/x.png");
-    });
-
-    it("melengkapi path relatif dengan origin Delcom", () => {
-      expect(resolvePhotoUrl("img/profile/a.png")).toBe(`${DELCOM_ORIGIN}/img/profile/a.png`);
-      expect(resolvePhotoUrl("/img/profile/a.png")).toBe(`${DELCOM_ORIGIN}/img/profile/a.png`);
-    });
-
-    it("secureUrl adalah alias resolvePhotoUrl", () => {
-      expect(secureUrl("img/a.png")).toBe(resolvePhotoUrl("img/a.png"));
-    });
+    await expect(showConfirmDialog("Hapus?", "Yakin?")).resolves.toBe(true);
+    expect(Swal.fire).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Hapus?", text: "Yakin?", showCancelButton: true })
+    );
   });
 
-  describe("formatRupiah", () => {
-    it("memformat angka dan string numerik", () => {
-      expect(formatRupiah(1500000)).toMatch(/^Rp\s?1\.500\.000$/);
-      expect(formatRupiah("25000")).toMatch(/^Rp\s?25\.000$/);
-    });
+  it("showConfirmDialog mengembalikan false saat dibatalkan", async () => {
+    vi.mocked(Swal.fire).mockResolvedValue({ isConfirmed: false } as never);
 
-    it("menganggap nilai kosong atau tidak valid sebagai nol", () => {
-      expect(formatRupiah(null)).toMatch(/^Rp\s?0$/);
-      expect(formatRupiah(undefined)).toMatch(/^Rp\s?0$/);
-      expect(formatRupiah("abc")).toMatch(/^Rp\s?0$/);
-    });
+    await expect(showConfirmDialog("Hapus?", "Yakin?")).resolves.toBe(false);
+  });
+});
+
+describe("formatRupiah", () => {
+  it("memformat angka ke Rupiah", () => {
+    expect(normalize(formatRupiah(2500000))).toBe("Rp 2.500.000");
   });
 
-  describe("formatDate", () => {
-    it("mengembalikan tanda hubung untuk nilai kosong", () => {
-      expect(formatDate(null)).toBe("-");
-      expect(formatDate(undefined)).toBe("-");
-    });
+  it("memformat string numerik", () => {
+    expect(normalize(formatRupiah("1500"))).toBe("Rp 1.500");
+  });
 
-    it("memformat tanggal valid dalam bahasa Indonesia", () => {
-      const result = formatDate("2026-01-15T10:30:00.000Z");
+  it("menganggap nilai tidak valid sebagai nol", () => {
+    expect(normalize(formatRupiah("abc"))).toBe("Rp 0");
+  });
+});
 
-      expect(result).toContain("Januari");
-      expect(result).toContain("2026");
-    });
+describe("formatDate & formatDateTime", () => {
+  it("mengembalikan tanda strip untuk nilai kosong", () => {
+    expect(formatDate(null)).toBe("-");
+    expect(formatDate(undefined)).toBe("-");
+    expect(formatDateTime(null)).toBe("-");
+  });
+
+  it("memformat tanggal ke bahasa Indonesia", () => {
+    const result = formatDate("2024-10-05T12:09:16.000000Z");
+
+    expect(result).toContain("Oktober");
+    expect(result).toContain("2024");
+  });
+
+  it("memformat tanggal dan jam (WIB)", () => {
+    const result = formatDateTime("2024-10-05T12:09:16.000000Z");
+
+    expect(result).toContain("2024");
+    expect(result).toMatch(/19[.:]09/);
+  });
+});
+
+describe("label & badge", () => {
+  it("getSourceLabel menerjemahkan sumber dana", () => {
+    expect(getSourceLabel("cash")).toBe("Tunai");
+    expect(getSourceLabel("savings")).toBe("Tabungan");
+    expect(getSourceLabel("loans")).toBe("Pinjaman");
+  });
+
+  it("getSourceLabel mengembalikan nilai asli bila tidak dikenal", () => {
+    expect(getSourceLabel("crypto")).toBe("crypto");
+  });
+
+  it("getTypeLabel dan getTypeBadgeClass membedakan inflow/outflow", () => {
+    expect(getTypeLabel("inflow")).toBe("Pemasukan");
+    expect(getTypeLabel("outflow")).toBe("Pengeluaran");
+    expect(getTypeBadgeClass("inflow")).toContain("emerald");
+    expect(getTypeBadgeClass("outflow")).toContain("rose");
+  });
+
+  it("formatSignedRupiah memberi tanda + / -", () => {
+    expect(normalize(formatSignedRupiah("inflow", 1000))).toBe("+Rp 1.000");
+    expect(normalize(formatSignedRupiah("outflow", 1000))).toBe("-Rp 1.000");
+  });
+});
+
+describe("resolvePhotoUrl", () => {
+  const origin = new URL(DELCOM_BASEURL).origin;
+
+  it("mengembalikan string kosong bila tidak ada foto", () => {
+    expect(resolvePhotoUrl(null)).toBe("");
+    expect(resolvePhotoUrl(undefined)).toBe("");
+  });
+
+  it("mempertahankan URL absolut", () => {
+    expect(resolvePhotoUrl("http://127.0.0.1:8000/img/a.png")).toBe(
+      "http://127.0.0.1:8000/img/a.png"
+    );
+  });
+
+  it("menambahkan origin API untuk path relatif", () => {
+    expect(resolvePhotoUrl("img/profile/1.png")).toBe(`${origin}/img/profile/1.png`);
+    expect(resolvePhotoUrl("/img/profile/1.png")).toBe(`${origin}/img/profile/1.png`);
   });
 });

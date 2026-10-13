@@ -1,63 +1,65 @@
-import { describe, it, expect, vi } from "vitest";
-import { flushPromises } from "@vue/test-utils";
-import { createMockPinia, renderWithProviders, mockUser } from "../../../test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMockPinia, renderWithProviders } from "../../../test-utils";
+import { useUsersStore } from "../states/usersStore";
+import type { User } from "../api/userApi";
 import UsersPage from "./UsersPage.vue";
 
-const siti = { ...mockUser, id: "user-2", name: "Siti Aminah", email: "siti@del.ac.id", photo: "https://img.test/siti.png" };
+const makeUser = (overrides: Partial<User>): User => ({
+  id: 1,
+  name: "Delcom Testing",
+  email: "testing@delcom.org",
+  email_verified_at: null,
+  photo: null,
+  created_at: "2024-10-05T02:53:38.000000Z",
+  updated_at: "2024-10-05T02:53:38.000000Z",
+  ...overrides,
+});
 
-function setup(users = [mockUser, siti], fetchImpl?: () => Promise<void>) {
-  const { pinia, usersStore } = createMockPinia({ users });
-  const fetchSpy = vi.spyOn(usersStore, "asyncSetUsers").mockImplementation(fetchImpl ?? (async () => undefined));
-  const view = renderWithProviders(UsersPage, { pinia });
-  return { ...view, usersStore, fetchSpy };
+async function setup(patch: Record<string, unknown> = {}) {
+  const pinia = createMockPinia();
+  const store = useUsersStore(pinia);
+  const spy = vi.spyOn(store, "asyncGetUsers").mockResolvedValue(undefined);
+  store.$patch(patch);
+  const result = await renderWithProviders(UsersPage, { pinia });
+  return { store, spy, ...result };
 }
 
+beforeEach(() => {
+  vi.resetAllMocks();
+});
+
 describe("UsersPage", () => {
-  it("memuat pengguna saat dimuat dan menampilkan kartu pengguna", async () => {
-    const { wrapper, fetchSpy } = setup();
-    await flushPromises();
+  it("memuat daftar pengguna saat dibuka", async () => {
+    const { spy } = await setup();
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(wrapper.get("h1").text()).toBe("Direktori Pengguna");
-    expect(wrapper.find('[data-testid="user-card-user-1"]').exists()).toBe(true);
-    expect(wrapper.get('[data-testid="users-total"]').text()).toBe("Total: 2 Pengguna");
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
-  it("menampilkan inisial jika tanpa foto dan foto jika tersedia", async () => {
-    const { wrapper } = setup();
-    await flushPromises();
+  it("menampilkan status memuat", async () => {
+    const { wrapper } = await setup({ isUsers: true });
 
-    expect(wrapper.get('[data-testid="user-card-user-1"]').text()).toContain("B");
-    expect(wrapper.find('[data-testid="user-card-user-1"] img').exists()).toBe(false);
-    expect(wrapper.get('[data-testid="user-card-user-2"] img').attributes("alt")).toBe("Foto Siti Aminah");
+    expect(wrapper.text()).toContain("Memuat data pengguna");
   });
 
-  it("menampilkan status loading selama pengguna dimuat", async () => {
-    const { wrapper } = setup([], () => new Promise<void>(() => undefined));
-    await flushPromises();
+  it("menampilkan pesan kosong", async () => {
+    const { wrapper } = await setup();
 
-    expect(wrapper.text()).toContain("Memuat daftar pengguna...");
+    expect(wrapper.text()).toContain("Belum ada pengguna");
   });
 
-  it("memfilter pengguna berdasarkan nama atau email", async () => {
-    const { wrapper } = setup();
-    await flushPromises();
-    const search = wrapper.get('[data-testid="search-user-input"]');
+  it("menampilkan kartu pengguna dengan foto dan inisial", async () => {
+    const { wrapper } = await setup({
+      users: [
+        makeUser({ id: 1, name: "Abdullah", email: "a@delcom.org", photo: "http://127.0.0.1/img/a.png" }),
+        makeUser({ id: 2, name: "budi", email: "b@delcom.org", photo: null }),
+      ],
+    });
 
-    await search.setValue("siti");
-    expect(wrapper.findAll("article")).toHaveLength(1);
-
-    await search.setValue("BUDI@DEL");
-    expect(wrapper.findAll("article")).toHaveLength(1);
-    expect(wrapper.get("article").text()).toContain("Budi Santoso");
-  });
-
-  it("menampilkan pesan kosong jika tidak ada hasil", async () => {
-    const { wrapper } = setup();
-    await flushPromises();
-
-    await wrapper.get('[data-testid="search-user-input"]').setValue("tidak ada");
-
-    expect(wrapper.text()).toContain("Tidak ada data pengguna ditemukan.");
+    const cards = wrapper.findAll("[data-testid=user-card]");
+    expect(cards).toHaveLength(2);
+    expect(cards[0].find("img").attributes("src")).toBe("http://127.0.0.1/img/a.png");
+    expect(cards[1].find("img").exists()).toBe(false);
+    expect(cards[1].text()).toContain("B");
+    expect(cards[1].text()).toContain("b@delcom.org");
   });
 });

@@ -1,72 +1,87 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
-import { renderWithProviders } from "../../../test-utils";
+import { createMockPinia, renderWithProviders } from "../../../test-utils";
+import { useCashFlowsStore } from "../states/cashFlowsStore";
 import AddModal from "./AddModal.vue";
 
-vi.mock("../../../helpers/toolsHelper", () => ({
-  showErrorDialog: vi.fn(),
-  showSuccessDialog: vi.fn(),
-  getErrorMessage: () => "error",
-}));
+async function setup(show: boolean) {
+  const pinia = createMockPinia();
+  const store = useCashFlowsStore(pinia);
+  const spy = vi.spyOn(store, "asyncAddCashFlow").mockResolvedValue(undefined);
+  const result = await renderWithProviders(AddModal, { pinia, props: { show } });
+  return { store, spy, ...result };
+}
 
-async function fillAndSubmit(wrapper: ReturnType<typeof renderWithProviders>["wrapper"]): Promise<void> {
-  await wrapper.get('[data-testid="add-label-input"]').setValue("Gaji");
-  await wrapper.get('[data-testid="add-nominal-input"]').setValue("1000000");
-  await wrapper.get("form").trigger("submit");
+async function fillAndSubmit(wrapper: Awaited<ReturnType<typeof setup>>["wrapper"]) {
+  await wrapper.find("#cf-label").setValue("gaji");
+  await wrapper.find("#cf-nominal").setValue("2500000");
+  await wrapper.find("form").trigger("submit");
   await flushPromises();
 }
 
-describe("AddModal", () => {
-  it("menampilkan dialog dengan form kosong", () => {
-    const { wrapper } = renderWithProviders(AddModal);
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
-    expect(wrapper.get("dialog").exists()).toBe(true);
-    expect(wrapper.text()).toContain("Tambah Catatan Arus Kas");
-    expect((wrapper.get('[data-testid="add-label-input"]').element as HTMLInputElement).value).toBe("");
+describe("AddModal", () => {
+  it("tidak merender apa pun saat show=false", async () => {
+    const { wrapper } = await setup(false);
+
+    expect(wrapper.find("[data-testid=add-modal]").exists()).toBe(false);
   });
 
-  it("menyimpan data, lalu memancarkan saved dan close saat berhasil", async () => {
-    const { wrapper, cashFlowsStore } = renderWithProviders(AddModal);
-    const addSpy = vi.spyOn(cashFlowsStore, "asyncAddCashFlow").mockImplementation(async () => {
-      cashFlowsStore.setIsCashFlowAdded(true);
-      cashFlowsStore.setIsCashFlowAdd(true);
+  it("menampilkan formulir dengan daftar label dari store", async () => {
+    const pinia = createMockPinia();
+    useCashFlowsStore(pinia).$patch({ labels: ["gaji"] });
+    const { wrapper } = await renderWithProviders(AddModal, { pinia, props: { show: true } });
+
+    expect(wrapper.text()).toContain("Tambah Transaksi");
+    expect(wrapper.findAll("datalist option")).toHaveLength(1);
+  });
+
+  it("menyimpan transaksi lalu memancarkan saved dan close", async () => {
+    const { wrapper, store, spy } = await setup(true);
+    spy.mockImplementation(async () => {
+      store.isCashFlowAdded = true;
     });
 
     await fillAndSubmit(wrapper);
 
-    expect(addSpy).toHaveBeenCalledWith({
+    expect(spy).toHaveBeenCalledWith({
       type: "inflow",
       source: "cash",
-      label: "Gaji",
-      nominal: 1000000,
+      label: "gaji",
+      nominal: 2500000,
       description: "",
     });
     expect(wrapper.emitted("saved")).toHaveLength(1);
     expect(wrapper.emitted("close")).toHaveLength(1);
-    expect(cashFlowsStore.isCashFlowAdd).toBe(false);
-    expect(cashFlowsStore.isCashFlowAdded).toBe(false);
   });
 
-  it("tetap terbuka dan tidak memancarkan event saat gagal", async () => {
-    const { wrapper, cashFlowsStore } = renderWithProviders(AddModal);
-    vi.spyOn(cashFlowsStore, "asyncAddCashFlow").mockImplementation(async () => {
-      cashFlowsStore.setIsCashFlowAdded(false);
-      cashFlowsStore.setIsCashFlowAdd(true);
-    });
+  it("tidak menutup modal bila penyimpanan gagal", async () => {
+    const { wrapper } = await setup(true);
 
     await fillAndSubmit(wrapper);
 
     expect(wrapper.emitted("saved")).toBeUndefined();
     expect(wrapper.emitted("close")).toBeUndefined();
-    expect(wrapper.get('[data-testid="add-submit-btn"]').text()).toBe("Tambah Catatan");
   });
 
-  it("memancarkan close dari tombol batal dan tombol tutup", async () => {
-    const { wrapper } = renderWithProviders(AddModal);
+  it("memancarkan close dari tombol tutup dan Batal", async () => {
+    const { wrapper } = await setup(true);
 
-    await wrapper.get('[data-testid="add-cancel-btn"]').trigger("click");
-    await wrapper.get('[data-testid="close-modal-btn"]').trigger("click");
+    await wrapper.find("[data-testid=close-modal]").trigger("click");
+    await wrapper.find("[data-testid=cancel-button]").trigger("click");
 
     expect(wrapper.emitted("close")).toHaveLength(2);
+  });
+
+  it("menampilkan status menyimpan", async () => {
+    const { wrapper, store } = await setup(true);
+
+    store.isCashFlowAdd = true;
+    await flushPromises();
+
+    expect(wrapper.find("button[type=submit]").text()).toBe("Menyimpan...");
   });
 });

@@ -1,49 +1,52 @@
-<template>
-  <ModalDialog title="Tambah Catatan Arus Kas" test-id="add-cashflow-modal" @close="emit('close')">
-    <CashFlowForm
-      :initial="EMPTY_PAYLOAD"
-      id-prefix="add"
-      submit-label="Tambah Catatan"
-      :loading="loading"
-      @submit="handleSave"
-      @cancel="emit('close')"
-    />
-  </ModalDialog>
-</template>
-
 <script setup lang="ts">
-import { ref } from "vue";
-import ModalDialog from "../../common/components/ModalDialog.vue";
+import { X } from "lucide-vue-next";
 import CashFlowForm from "../components/CashFlowForm.vue";
 import { useCashFlowsStore } from "../states/cashFlowsStore";
 import type { CashFlowPayload } from "../api/cashFlowApi";
 
-const EMPTY_PAYLOAD: CashFlowPayload = {
-  type: "inflow",
-  source: "cash",
-  label: "",
-  nominal: 0,
-  description: "",
-};
-
+defineProps<{ show: boolean }>();
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "saved"): void;
 }>();
 
-const cashFlowsStore = useCashFlowsStore();
-const loading = ref(false);
+const store = useCashFlowsStore();
 
-async function handleSave(payload: CashFlowPayload): Promise<void> {
-  loading.value = true;
-  await cashFlowsStore.asyncAddCashFlow(payload);
-  cashFlowsStore.setIsCashFlowAdd(false);
-  loading.value = false;
+async function onSubmit(payload: CashFlowPayload) {
+  await store.asyncAddCashFlow(payload);
 
-  if (cashFlowsStore.isCashFlowAdded) {
-    cashFlowsStore.setIsCashFlowAdded(false);
+  if (store.isCashFlowAdded) {
     emit("saved");
     emit("close");
   }
 }
 </script>
+
+<template>
+  <div
+    v-if="show"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+    data-testid="add-modal">
+    <div class="max-h-full w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+      <div class="mb-4 flex items-center justify-between">
+        <h2 class="text-lg font-extrabold text-slate-900">Tambah Transaksi</h2>
+        <button
+          type="button"
+          class="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
+          aria-label="Tutup"
+          data-testid="close-modal"
+          @click="emit('close')">
+          <X class="h-4 w-4" />
+        </button>
+      </div>
+
+      <CashFlowForm
+        :initial="null"
+        :labels="store.labels"
+        :loading="store.isCashFlowAdd"
+        submit-text="Simpan Transaksi"
+        @submit="onSubmit"
+        @cancel="emit('close')" />
+    </div>
+  </div>
+</template>

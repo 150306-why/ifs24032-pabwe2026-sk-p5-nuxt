@@ -1,124 +1,186 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import apiHelper from "./apiHelper";
-import { mockJsonResponse } from "../test-utils";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  apiDelete,
+  apiFetch,
+  apiGet,
+  apiPost,
+  apiPut,
+  getAccessToken,
+  getErrorMessage,
+  putAccessToken,
+  removeAccessToken,
+} from "./apiHelper";
 
-describe("apiHelper", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    vi.restoreAllMocks();
+const mockFetch = (body: unknown, status = 200) => {
+  const fn = vi.fn().mockResolvedValue({ status, json: async () => body });
+  vi.stubGlobal("fetch", fn);
+  return fn;
+};
+
+const okBody = { status: "success", message: "ok", data: {} };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("token storage", () => {
+  it("menyimpan, membaca, dan menghapus token", () => {
+    expect(getAccessToken()).toBeNull();
+    putAccessToken("abc");
+    expect(getAccessToken()).toBe("abc");
+    removeAccessToken();
+    expect(getAccessToken()).toBeNull();
+  });
+});
+
+describe("apiGet", () => {
+  it("menyusun query string, melewati nilai kosong, dan menyertakan token", async () => {
+    putAccessToken("abc");
+    const fetchMock = mockFetch(okBody);
+
+    const response = await apiGet("/cash-flows", {
+      type: "inflow",
+      label: "",
+      a: undefined,
+      b: null,
+      total: 0,
+    });
+
+    expect(response).toEqual(okBody);
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${DELCOM_BASEURL}/cash-flows?type=inflow&total=0`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json", Authorization: "Bearer abc" },
+        body: undefined,
+      }
+    );
   });
 
-  describe("token storage", () => {
-    it("menyimpan, membaca, dan menghapus token", () => {
-      expect(apiHelper.getAccessToken()).toBeNull();
-      apiHelper.putAccessToken("dummy-token");
-      expect(apiHelper.getAccessToken()).toBe("dummy-token");
-      apiHelper.putAccessToken(null);
-      expect(apiHelper.getAccessToken()).toBeNull();
-      apiHelper.putAccessToken("dummy-token");
-      apiHelper.putAccessToken("");
-      expect(apiHelper.getAccessToken()).toBeNull();
+  it("tanpa token dan tanpa params", async () => {
+    const fetchMock = mockFetch(okBody);
+
+    await apiGet("/users");
+
+    expect(fetchMock).toHaveBeenCalledWith(`${DELCOM_BASEURL}/users`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      body: undefined,
     });
   });
 
-  describe("fetchData", () => {
-    it("menambahkan header Authorization dan menghapus trailing slash", async () => {
-      apiHelper.putAccessToken("test-token");
-      const mockFetch = vi.fn().mockResolvedValue({ status: 200 });
-      vi.stubGlobal("fetch", mockFetch);
+  it("tidak menambahkan tanda tanya bila semua params kosong", async () => {
+    const fetchMock = mockFetch(okBody);
 
-      await apiHelper.fetchData("http://localhost/api/v1/users/", { method: "GET" });
+    await apiGet("/users", { a: "" });
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://localhost/api/v1/users",
-        expect.objectContaining({
-          method: "GET",
-          mode: "cors",
-          headers: { Authorization: "Bearer test-token" },
-        })
-      );
-    });
+    expect(fetchMock.mock.calls[0][0]).toBe(`${DELCOM_BASEURL}/users`);
+  });
+});
 
-    it("mempertahankan query string dan header bawaan tanpa token", async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ status: 200 });
-      vi.stubGlobal("fetch", mockFetch);
+describe("apiPost / apiPut / apiDelete", () => {
+  it("apiPost mengirim body JSON", async () => {
+    const fetchMock = mockFetch(okBody);
 
-      await apiHelper.fetchData("http://localhost/api/v1/cash-flows/?type=inflow", {
-        headers: { "Content-Type": "application/json" },
-      });
+    await apiPost("/auth/login", { email: "a@b.c" });
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://localhost/api/v1/cash-flows?type=inflow",
-        expect.objectContaining({ headers: { "Content-Type": "application/json" } })
-      );
-    });
-
-    it("bekerja tanpa options dan tanpa trailing slash", async () => {
-      const mockFetch = vi.fn().mockResolvedValue({ status: 200 });
-      vi.stubGlobal("fetch", mockFetch);
-
-      await apiHelper.fetchData("http://localhost/api/v1/users");
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        "http://localhost/api/v1/users",
-        expect.objectContaining({ headers: {} })
-      );
+    expect(fetchMock).toHaveBeenCalledWith(`${DELCOM_BASEURL}/auth/login`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "a@b.c" }),
     });
   });
 
-  describe("fetchJson", () => {
-    it("mengembalikan envelope jika status success", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ status: "success", message: "OK", data: { a: 1 } })));
+  it("apiPost mengirim FormData tanpa Content-Type manual", async () => {
+    const fetchMock = mockFetch(okBody);
+    const form = new FormData();
+    form.append("photo", "x");
 
-      const result = await apiHelper.fetchJson<{ a: number }>("http://localhost/x");
+    await apiPost("/users/me/photo", form);
 
-      expect(result.data.a).toBe(1);
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.body).toBe(form);
+    expect(init.headers["Content-Type"]).toBeUndefined();
+  });
+
+  it("apiPost tanpa body", async () => {
+    const fetchMock = mockFetch(okBody);
+
+    await apiPost("/auth/logout");
+
+    expect(fetchMock.mock.calls[0][1].body).toBeUndefined();
+  });
+
+  it("apiPut memakai metode PUT", async () => {
+    const fetchMock = mockFetch(okBody);
+
+    await apiPut("/cash-flows/1", { label: "x" });
+
+    expect(fetchMock.mock.calls[0][1].method).toBe("PUT");
+  });
+
+  it("apiDelete memakai metode DELETE", async () => {
+    const fetchMock = mockFetch(okBody);
+
+    await apiDelete("/cash-flows/1");
+
+    expect(fetchMock.mock.calls[0][1].method).toBe("DELETE");
+  });
+});
+
+describe("apiFetch", () => {
+  it("menghapus token ketika server membalas 401", async () => {
+    putAccessToken("expired");
+    mockFetch({ status: "fail", message: "Unauthenticated." }, 401);
+
+    const response = await apiFetch("/users/me", { method: "GET" });
+
+    expect(response.message).toBe("Unauthenticated.");
+    expect(getAccessToken()).toBeNull();
+  });
+
+  it("mempertahankan token untuk status selain 401", async () => {
+    putAccessToken("valid");
+    mockFetch(okBody, 200);
+
+    await apiFetch("/users/me", { method: "GET" });
+
+    expect(getAccessToken()).toBe("valid");
+  });
+
+  it("mengembalikan respons fail ketika jaringan bermasalah", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+
+    const response = await apiFetch("/users", { method: "GET" });
+
+    expect(response).toEqual({
+      status: "fail",
+      message: "Gagal terhubung ke server",
+      data: null,
     });
+  });
+});
 
-    it("menerima respons dengan flag success true", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ success: true, message: "OK", data: null })));
+describe("getErrorMessage", () => {
+  it("memakai pesan utama bila data kosong", () => {
+    expect(getErrorMessage({ status: "fail", message: "Gagal", data: null })).toBe("Gagal");
+  });
 
-      const result = await apiHelper.fetchJson("http://localhost/x");
+  it("memakai pesan utama bila data bukan objek", () => {
+    expect(getErrorMessage({ status: "fail", message: "Gagal", data: "x" })).toBe("Gagal");
+  });
 
-      expect(result.message).toBe("OK");
-    });
+  it("memakai pesan utama bila objek tidak punya detail", () => {
+    expect(getErrorMessage({ status: "fail", message: "Gagal", data: {} })).toBe("Gagal");
+  });
 
-    it("melempar pesan dari server beserta detail validasi", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue(
-          mockJsonResponse({ status: "fail", message: "Validasi gagal", data: { email: ["Email tidak valid"], name: ["Nama kosong"] } })
-        )
-      );
-
-      await expect(apiHelper.fetchJson("http://localhost/x")).rejects.toThrow(
-        "Validasi gagal: Email tidak valid, Nama kosong"
-      );
-    });
-
-    it("memakai pesan fallback bawaan jika server tidak mengirim pesan", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ status: "fail", data: null })));
-
-      await expect(apiHelper.fetchJson("http://localhost/x")).rejects.toThrow("Terjadi kesalahan pada server");
-    });
-
-    it("memakai pesan fallback khusus dan mengabaikan data non-objek", async () => {
-      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockJsonResponse({ status: "fail", data: "teks" })));
-
-      await expect(apiHelper.fetchJson("http://localhost/x", {}, "Gagal khusus")).rejects.toThrow("Gagal khusus");
-    });
-
-    it("melempar fallback jika respons bukan JSON", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          json: async () => {
-            throw new SyntaxError("Unexpected token");
-          },
-        })
-      );
-
-      await expect(apiHelper.fetchJson("http://localhost/x", {}, "Respons tidak valid")).rejects.toThrow("Respons tidak valid");
-    });
+  it("menggabungkan detail validasi per-field", () => {
+    expect(
+      getErrorMessage({
+        status: "fail",
+        message: "Data tidak valid",
+        data: { label: ["Label wajib diisi"], nominal: ["Harus angka", "Minimal 1"] },
+      })
+    ).toBe("Data tidak valid: Label wajib diisi, Harus angka, Minimal 1");
   });
 });

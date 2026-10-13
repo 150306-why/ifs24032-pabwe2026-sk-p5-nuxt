@@ -1,25 +1,37 @@
+/// <reference types="vitest/config" />
 import { defineConfig, loadEnv } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
-import process from "node:process";
+import process from "process";
+
+const API_TARGET = "https://open-api.delcom.org";
+
+const apiProxy = {
+  "/api": {
+    target: API_TARGET,
+    changeOrigin: true,
+    // /api/cash-flows -> https://open-api.delcom.org/api/v1/cash-flows
+    rewrite: (path: string) => path.replace(/^\/api/, "/api/v1"),
+  },
+};
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const port = Number(env.APP_PORT || env.PORT) || 3000;
-  const baseUrl = env.VITE_DELCOM_BASEURL || "https://open-api.delcom.org/api/v1";
 
   return {
     plugins: [vue(), tailwindcss()],
     server: {
       port,
+      proxy: apiProxy,
     },
     preview: {
       port,
+      proxy: apiProxy,
     },
     define: {
-      DELCOM_BASEURL: JSON.stringify(baseUrl),
-      DELCOM_ORIGIN: JSON.stringify(new URL(baseUrl).origin),
+      DELCOM_BASEURL: JSON.stringify(env.VITE_DELCOM_BASEURL || "/api"),
     },
     test: {
       globals: true,
@@ -34,7 +46,6 @@ export default defineConfig(({ mode }) => {
           "src/router.options.ts",
           "src/setupTests.ts",
           "src/test-utils.ts",
-          "src/plugins/**",
           "src/**/*.d.ts",
           "**/*.test.{js,ts,jsx,tsx}",
           "node_modules/**",

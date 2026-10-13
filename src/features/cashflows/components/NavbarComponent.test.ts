@@ -1,52 +1,94 @@
-import { describe, it, expect } from "vitest";
-import { renderWithProviders, mockUser } from "../../../test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises } from "@vue/test-utils";
+
+vi.mock("../../../helpers/toolsHelper", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../helpers/toolsHelper")>();
+  return { ...actual, showConfirmDialog: vi.fn() };
+});
+
+import { showConfirmDialog } from "../../../helpers/toolsHelper";
+import { createMockPinia, renderWithProviders } from "../../../test-utils";
+import { useAuthStore } from "../../auth/states/authStore";
+import { useUsersStore } from "../../users/states/usersStore";
+import type { User } from "../../users/api/userApi";
 import NavbarComponent from "./NavbarComponent.vue";
 
-describe("NavbarComponent", () => {
-  it("menampilkan nama, email, inisial, dan status sesi", () => {
-    const { wrapper } = renderWithProviders(NavbarComponent, {
-      props: { profile: mockUser, isSidebarOpen: false },
-    });
+const profile: User = {
+  id: 1,
+  name: "Abdullah Ubaid",
+  email: "ifs24032@del.ac.id",
+  email_verified_at: null,
+  photo: null,
+  created_at: "2024-10-05T02:53:38.000000Z",
+  updated_at: "2024-10-05T02:53:38.000000Z",
+};
 
-    expect(wrapper.get('[data-testid="navbar-name"]').text()).toBe("Budi Santoso");
-    expect(wrapper.get('[data-testid="navbar-email"]').text()).toBe("budi@del.ac.id");
-    expect(wrapper.text()).toContain("B");
+async function setup(user: User | null) {
+  const pinia = createMockPinia();
+  useUsersStore(pinia).$patch({ profile: user });
+  const auth = useAuthStore(pinia);
+  const logout = vi.spyOn(auth, "asyncLogout").mockResolvedValue(undefined);
+  const result = await renderWithProviders(NavbarComponent, { pinia, route: "/" });
+  return { logout, ...result };
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+});
+
+describe("NavbarComponent", () => {
+  it("menampilkan nama, username, dan inisial dari profil tanpa foto", async () => {
+    const { wrapper } = await setup(profile);
+
+    expect(wrapper.find("[data-testid=display-name]").text()).toBe("Abdullah Ubaid");
+    expect(wrapper.text()).toContain("@ifs24032");
     expect(wrapper.text()).toContain("Sesi aktif");
+    expect(wrapper.find("[data-testid=avatar-initial]").text()).toBe("A");
     expect(wrapper.find("img").exists()).toBe(false);
   });
 
-  it("menampilkan foto profil jika tersedia", () => {
-    const { wrapper } = renderWithProviders(NavbarComponent, {
-      props: { profile: { ...mockUser, photo: "https://img.test/a.png" }, isSidebarOpen: false },
-    });
+  it("menampilkan foto profil bila tersedia", async () => {
+    const { wrapper } = await setup({ ...profile, photo: "http://127.0.0.1/img/a.png" });
 
-    const img = wrapper.get("img");
-    expect(img.attributes("src")).toBe("https://img.test/a.png");
-    expect(img.attributes("alt")).toBe("Foto Budi Santoso");
+    expect(wrapper.find("img").attributes("src")).toBe("http://127.0.0.1/img/a.png");
+    expect(wrapper.find("[data-testid=avatar-initial]").exists()).toBe(false);
   });
 
-  it("memancarkan toggle-sidebar dan mengubah label tombol sesuai status", async () => {
-    const closed = renderWithProviders(NavbarComponent, { props: { profile: mockUser, isSidebarOpen: false } });
-    const toggle = closed.wrapper.get('[data-testid="toggle-sidebar-btn"]');
-    expect(toggle.attributes("aria-label")).toBe("Buka navigasi");
-    expect(toggle.attributes("aria-expanded")).toBe("false");
+  it("memakai nilai cadangan saat profil belum dimuat", async () => {
+    const { wrapper } = await setup(null);
 
-    await toggle.trigger("click");
-    expect(closed.wrapper.emitted("toggle-sidebar")).toHaveLength(1);
-
-    const open = renderWithProviders(NavbarComponent, { props: { profile: mockUser, isSidebarOpen: true } });
-    const openToggle = open.wrapper.get('[data-testid="toggle-sidebar-btn"]');
-    expect(openToggle.attributes("aria-label")).toBe("Tutup navigasi");
-    expect(openToggle.attributes("aria-expanded")).toBe("true");
+    expect(wrapper.find("[data-testid=display-name]").text()).toBe("Pengguna");
+    expect(wrapper.text()).toContain("@guest");
+    expect(wrapper.find("[data-testid=avatar-initial]").text()).toBe("P");
   });
 
-  it("memancarkan logout saat tombol keluar diklik", async () => {
-    const { wrapper } = renderWithProviders(NavbarComponent, {
-      props: { profile: mockUser, isSidebarOpen: false },
-    });
+  it("memancarkan event toggle dari tombol menu", async () => {
+    const { wrapper } = await setup(profile);
 
-    await wrapper.get('[data-testid="logout-button"]').trigger("click");
+    await wrapper.find("[data-testid=toggle-sidebar]").trigger("click");
 
-    expect(wrapper.emitted("logout")).toHaveLength(1);
+    expect(wrapper.emitted("toggle")).toHaveLength(1);
+  });
+
+  it("tidak keluar bila konfirmasi dibatalkan", async () => {
+    vi.mocked(showConfirmDialog).mockResolvedValue(false);
+    const { wrapper, logout, router } = await setup(profile);
+
+    await wrapper.find("[data-testid=logout-button]").trigger("click");
+    await flushPromises();
+
+    expect(logout).not.toHaveBeenCalled();
+    expect(router.currentRoute.value.path).toBe("/");
+  });
+
+  it("keluar lalu pindah ke halaman login", async () => {
+    vi.mocked(showConfirmDialog).mockResolvedValue(true);
+    const { wrapper, logout, router } = await setup(profile);
+
+    await wrapper.find("[data-testid=logout-button]").trigger("click");
+    await flushPromises();
+
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(router.currentRoute.value.path).toBe("/auth/login");
   });
 });

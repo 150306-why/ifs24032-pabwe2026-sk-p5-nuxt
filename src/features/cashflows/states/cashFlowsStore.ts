@@ -1,25 +1,35 @@
 import { defineStore } from "pinia";
-import cashFlowApi, {
-  EMPTY_STATS,
+import {
+  deleteAllCashFlows,
+  deleteCashFlow,
+  getCashFlow,
+  getCashFlows,
+  getLabels,
+  getStatsDaily,
+  getStatsMonthly,
+  postCashFlow,
+  putCashFlow,
   type CashFlow,
   type CashFlowPayload,
-  type CashFlowPeriodStat,
   type CashFlowQueryParams,
   type CashFlowStats,
+  type RawCashFlowStats,
+  type StatsQueryParams,
+  type StatsSeries,
 } from "../api/cashFlowApi";
-import { getErrorMessage, showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+import { getErrorMessage } from "../../../helpers/apiHelper";
+import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
 
-export type { CashFlow, CashFlowQueryParams, CashFlowStats } from "../api/cashFlowApi";
+export type { CashFlow, CashFlowStats, CashFlowQueryParams };
 
 export interface CashFlowsState {
   cashFlows: CashFlow[];
   cashFlow: CashFlow | null;
   stats: CashFlowStats;
   labels: string[];
-  dailyStats: CashFlowPeriodStat[];
-  monthlyStats: CashFlowPeriodStat[];
-  query: CashFlowQueryParams;
-  isCashFlowsLoading: boolean;
+  statsDaily: StatsSeries | null;
+  statsMonthly: StatsSeries | null;
+  isCashFlow: boolean;
   isCashFlowAdd: boolean;
   isCashFlowAdded: boolean;
   isCashFlowChange: boolean;
@@ -30,16 +40,38 @@ export interface CashFlowsState {
   isCashFlowDeletedAll: boolean;
 }
 
+const emptyStats = (): CashFlowStats => ({
+  cashflow: 0,
+  total_inflow: 0,
+  total_outflow: 0,
+  cash: 0,
+  savings: 0,
+  loans: 0,
+});
+
+const num = (raw: RawCashFlowStats, key: string): number => Number(raw[key]) || 0;
+
+/** Mengubah statistik mentah API menjadi saldo per sumber dana (pemasukan - pengeluaran). */
+function normalizeStats(raw: RawCashFlowStats): CashFlowStats {
+  return {
+    cashflow: num(raw, "cashflow"),
+    total_inflow: num(raw, "total_inflow"),
+    total_outflow: num(raw, "total_outflow"),
+    cash: num(raw, "total_inflow_cash") - num(raw, "total_outflow_cash"),
+    savings: num(raw, "total_inflow_savings") - num(raw, "total_outflow_savings"),
+    loans: num(raw, "total_inflow_loans") - num(raw, "total_outflow_loans"),
+  };
+}
+
 export const useCashFlowsStore = defineStore("cashFlows", {
   state: (): CashFlowsState => ({
     cashFlows: [],
     cashFlow: null,
-    stats: { ...EMPTY_STATS },
+    stats: emptyStats(),
     labels: [],
-    dailyStats: [],
-    monthlyStats: [],
-    query: {},
-    isCashFlowsLoading: false,
+    statsDaily: null,
+    statsMonthly: null,
+    isCashFlow: false,
     isCashFlowAdd: false,
     isCashFlowAdded: false,
     isCashFlowChange: false,
@@ -50,141 +82,129 @@ export const useCashFlowsStore = defineStore("cashFlows", {
     isCashFlowDeletedAll: false,
   }),
   actions: {
-    setCashFlows(cashFlows: CashFlow[]): void {
-      this.cashFlows = cashFlows;
-    },
-    setCashFlow(cashFlow: CashFlow | null): void {
-      this.cashFlow = cashFlow;
-    },
-    setStats(stats: CashFlowStats): void {
-      this.stats = stats;
-    },
-    setLabels(labels: string[]): void {
-      this.labels = labels;
-    },
-    setQuery(query: CashFlowQueryParams): void {
-      this.query = query;
-    },
-    setIsCashFlowsLoading(status: boolean): void {
-      this.isCashFlowsLoading = status;
-    },
-    setIsCashFlowAdd(status: boolean): void {
-      this.isCashFlowAdd = status;
-    },
-    setIsCashFlowAdded(status: boolean): void {
-      this.isCashFlowAdded = status;
-    },
-    setIsCashFlowChange(status: boolean): void {
-      this.isCashFlowChange = status;
-    },
-    setIsCashFlowChanged(status: boolean): void {
-      this.isCashFlowChanged = status;
-    },
-    setIsCashFlowDelete(status: boolean): void {
-      this.isCashFlowDelete = status;
-    },
-    setIsCashFlowDeleted(status: boolean): void {
-      this.isCashFlowDeleted = status;
-    },
-    setIsCashFlowDeleteAll(status: boolean): void {
-      this.isCashFlowDeleteAll = status;
-    },
-    setIsCashFlowDeletedAll(status: boolean): void {
-      this.isCashFlowDeletedAll = status;
-    },
-    async asyncSetCashFlows(query: CashFlowQueryParams): Promise<void> {
-      this.setQuery(query);
-      await this.asyncRefreshCashFlows();
-    },
-    async asyncRefreshCashFlows(): Promise<void> {
-      this.setIsCashFlowsLoading(true);
-      try {
-        const result = await cashFlowApi.getCashFlows(this.query);
-        this.setCashFlows(result.cashFlows);
-        this.setStats(result.stats);
-      } catch (error: unknown) {
-        this.setCashFlows([]);
-        this.setStats({ ...EMPTY_STATS });
-        void showErrorDialog(getErrorMessage(error, "Gagal mengambil data arus kas"));
-      } finally {
-        this.setIsCashFlowsLoading(false);
+    async asyncGetCashFlows(params?: CashFlowQueryParams) {
+      this.isCashFlow = true;
+      const response = await getCashFlows(params);
+      this.isCashFlow = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.cashFlows = response.data.cash_flows;
+      this.stats = normalizeStats(response.data.stats ?? {});
     },
-    async asyncSetCashFlow(cashFlowId: string): Promise<void> {
-      try {
-        this.setCashFlow(await cashFlowApi.getCashFlowById(cashFlowId));
-      } catch {
-        this.setCashFlow(null);
+
+    async asyncGetCashFlow(id: number | string) {
+      this.isCashFlow = true;
+      this.cashFlow = null;
+      const response = await getCashFlow(id);
+      this.isCashFlow = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.cashFlow = response.data.cash_flow;
     },
-    async asyncSetLabels(): Promise<void> {
-      try {
-        this.setLabels(await cashFlowApi.getLabels());
-      } catch {
-        this.setLabels([]);
+
+    async asyncAddCashFlow(payload: CashFlowPayload) {
+      this.isCashFlowAdd = true;
+      this.isCashFlowAdded = false;
+
+      const response = await postCashFlow(payload);
+      this.isCashFlowAdd = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.isCashFlowAdded = true;
+      showSuccessDialog(response.message);
     },
-    async asyncSetDailyStats(): Promise<void> {
-      try {
-        this.dailyStats = await cashFlowApi.getDailyStats();
-      } catch {
-        this.dailyStats = [];
+
+    async asyncChangeCashFlow(id: number | string, payload: CashFlowPayload) {
+      this.isCashFlowChange = true;
+      this.isCashFlowChanged = false;
+
+      const response = await putCashFlow(id, payload);
+      this.isCashFlowChange = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.isCashFlowChanged = true;
+      showSuccessDialog(response.message);
     },
-    async asyncSetMonthlyStats(): Promise<void> {
-      try {
-        this.monthlyStats = await cashFlowApi.getMonthlyStats();
-      } catch {
-        this.monthlyStats = [];
+
+    async asyncDeleteCashFlow(id: number | string) {
+      this.isCashFlowDelete = true;
+      this.isCashFlowDeleted = false;
+
+      const response = await deleteCashFlow(id);
+      this.isCashFlowDelete = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.isCashFlowDeleted = true;
+      showSuccessDialog(response.message);
     },
-    async asyncAddCashFlow(payload: CashFlowPayload): Promise<void> {
-      try {
-        const message = await cashFlowApi.postCashFlow(payload);
-        void showSuccessDialog(message);
-        this.setIsCashFlowAdded(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal menambahkan catatan arus kas"));
-        this.setIsCashFlowAdded(false);
-      } finally {
-        this.setIsCashFlowAdd(true);
+
+    async asyncDeleteAllCashFlows() {
+      this.isCashFlowDeleteAll = true;
+      this.isCashFlowDeletedAll = false;
+
+      const response = await deleteAllCashFlows();
+      this.isCashFlowDeleteAll = false;
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.isCashFlowDeletedAll = true;
+      showSuccessDialog(response.message);
     },
-    async asyncChangeCashFlow(cashFlowId: string, payload: CashFlowPayload): Promise<void> {
-      try {
-        const message = await cashFlowApi.putCashFlow(cashFlowId, payload);
-        void showSuccessDialog(message);
-        this.setIsCashFlowChanged(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal mengubah catatan arus kas"));
-        this.setIsCashFlowChanged(false);
-      } finally {
-        this.setIsCashFlowChange(true);
+
+    async asyncGetLabels() {
+      const response = await getLabels();
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.labels = response.data.labels;
     },
-    async asyncDeleteCashFlow(cashFlowId: string): Promise<void> {
-      try {
-        const message = await cashFlowApi.deleteCashFlow(cashFlowId);
-        void showSuccessDialog(message);
-        this.setIsCashFlowDeleted(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal menghapus catatan arus kas"));
-        this.setIsCashFlowDeleted(false);
-      } finally {
-        this.setIsCashFlowDelete(true);
+
+    async asyncGetStatsDaily(params?: StatsQueryParams) {
+      const response = await getStatsDaily(params);
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.statsDaily = response.data;
     },
-    async asyncDeleteAllCashFlows(): Promise<void> {
-      try {
-        const message = await cashFlowApi.deleteAllCashFlows();
-        void showSuccessDialog(message);
-        this.setIsCashFlowDeletedAll(true);
-      } catch (error: unknown) {
-        void showErrorDialog(getErrorMessage(error, "Gagal mereset catatan arus kas"));
-        this.setIsCashFlowDeletedAll(false);
-      } finally {
-        this.setIsCashFlowDeleteAll(true);
+
+    async asyncGetStatsMonthly(params?: StatsQueryParams) {
+      const response = await getStatsMonthly(params);
+
+      if (response.status !== "success") {
+        showErrorDialog(getErrorMessage(response));
+        return;
       }
+
+      this.statsMonthly = response.data;
     },
   },
 });

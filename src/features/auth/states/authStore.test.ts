@@ -1,113 +1,128 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { setActivePinia, createPinia } from "pinia";
-import { useAuthStore } from "./authStore";
-import authApi from "../api/authApi";
-import apiHelper from "../../../helpers/apiHelper";
-import * as toolsHelper from "../../../helpers/toolsHelper";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../api/authApi");
-vi.mock("../../../helpers/apiHelper", () => ({
-  default: { putAccessToken: vi.fn() },
+vi.mock("../api/authApi", () => ({
+  postLogin: vi.fn(),
+  postRegister: vi.fn(),
+  postLogout: vi.fn(),
 }));
 vi.mock("../../../helpers/toolsHelper", () => ({
-  showSuccessDialog: vi.fn(),
   showErrorDialog: vi.fn(),
-  getErrorMessage: (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback),
+  showSuccessDialog: vi.fn(),
 }));
 
+import { postLogin, postLogout, postRegister } from "../api/authApi";
+import { getAccessToken, putAccessToken } from "../../../helpers/apiHelper";
+import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
+import { createMockPinia } from "../../../test-utils";
+import { useAuthStore } from "./authStore";
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  createMockPinia();
+});
+
 describe("authStore", () => {
-  let store: ReturnType<typeof useAuthStore>;
+  it("memiliki state awal tanpa token", () => {
+    const store = useAuthStore();
 
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    store = useAuthStore();
-    vi.clearAllMocks();
+    expect(store.token).toBeNull();
+    expect(store.isAuthenticated).toBe(false);
+    expect(store.isAuthLogin).toBe(false);
   });
 
-  it("memiliki state awal yang benar", () => {
-    expect(store.$state).toEqual({
-      isAuthRegister: false,
-      isAuthRegistered: false,
-      isAuthLogin: false,
-      isAuthLoggedIn: false,
-      isAuthLogout: false,
-      isAuthLoggedOut: false,
-    });
+  it("memulihkan token dari localStorage", () => {
+    putAccessToken("saved-token");
+
+    const store = useAuthStore();
+
+    expect(store.token).toBe("saved-token");
+    expect(store.isAuthenticated).toBe(true);
   });
 
-  it("memperbarui state lewat setter", () => {
-    store.setIsAuthRegister(true);
-    store.setIsAuthRegistered(true);
-    store.setIsAuthLogin(true);
-    store.setIsAuthLoggedIn(true);
-    store.setIsAuthLogout(true);
-    store.setIsAuthLoggedOut(true);
+  describe("asyncLogin", () => {
+    it("menyimpan token saat berhasil", async () => {
+      vi.mocked(postLogin).mockResolvedValue({
+        status: "success",
+        message: "Berhasil login",
+        data: { user: { id: 1, name: "A", email: "a@b.c" }, token: "tok" },
+      });
+      const store = useAuthStore();
 
-    expect(Object.values(store.$state).every(Boolean)).toBe(true);
-  });
+      await store.asyncLogin("a@b.c", "123456");
 
-  describe("asyncSetIsAuthRegister", () => {
-    it("berhasil mendaftar dan menampilkan dialog sukses", async () => {
-      vi.mocked(authApi.postRegister).mockResolvedValueOnce("Pendaftaran berhasil");
-
-      await store.asyncSetIsAuthRegister("Budi", "budi@del.ac.id", "rahasia");
-
-      expect(toolsHelper.showSuccessDialog).toHaveBeenCalledWith("Pendaftaran berhasil");
-      expect(store.isAuthRegistered).toBe(true);
-      expect(store.isAuthRegister).toBe(true);
-    });
-
-    it("gagal mendaftar dan menampilkan dialog error", async () => {
-      vi.mocked(authApi.postRegister).mockRejectedValueOnce(new Error("Email sudah terdaftar"));
-
-      await store.asyncSetIsAuthRegister("Budi", "budi@del.ac.id", "rahasia");
-
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Email sudah terdaftar");
-      expect(store.isAuthRegistered).toBe(false);
-      expect(store.isAuthRegister).toBe(true);
-    });
-  });
-
-  describe("asyncSetIsAuthLogin", () => {
-    it("berhasil login dan menyimpan token", async () => {
-      vi.mocked(authApi.postLogin).mockResolvedValueOnce({ token: "token-123" });
-
-      await store.asyncSetIsAuthLogin("budi@del.ac.id", "rahasia");
-
-      expect(apiHelper.putAccessToken).toHaveBeenCalledWith("token-123");
+      expect(postLogin).toHaveBeenCalledWith("a@b.c", "123456");
+      expect(store.token).toBe("tok");
+      expect(getAccessToken()).toBe("tok");
       expect(store.isAuthLoggedIn).toBe(true);
-      expect(store.isAuthLogin).toBe(true);
+      expect(store.isAuthLogin).toBe(false);
     });
 
-    it("gagal login dan menampilkan dialog error", async () => {
-      vi.mocked(authApi.postLogin).mockRejectedValueOnce("bukan error");
+    it("menampilkan dialog error saat gagal", async () => {
+      vi.mocked(postLogin).mockResolvedValue({
+        status: "fail",
+        message: "Kredensial akun tidak ditemukan",
+        data: null,
+      });
+      const store = useAuthStore();
 
-      await store.asyncSetIsAuthLogin("budi@del.ac.id", "salah");
+      await store.asyncLogin("a@b.c", "salah");
 
-      expect(toolsHelper.showErrorDialog).toHaveBeenCalledWith("Gagal login");
+      expect(showErrorDialog).toHaveBeenCalledWith("Kredensial akun tidak ditemukan");
+      expect(store.token).toBeNull();
       expect(store.isAuthLoggedIn).toBe(false);
-      expect(store.isAuthLogin).toBe(true);
+      expect(store.isAuthLogin).toBe(false);
     });
   });
 
-  describe("asyncSetIsAuthLogout", () => {
-    it("logout dan membersihkan token", async () => {
-      vi.mocked(authApi.postLogout).mockResolvedValueOnce("ok");
+  describe("asyncRegister", () => {
+    it("menandai pendaftaran berhasil dan menampilkan dialog sukses", async () => {
+      vi.mocked(postRegister).mockResolvedValue({
+        status: "success",
+        message: "Berhasil melakukan pendaftaran",
+        data: null,
+      });
+      const store = useAuthStore();
 
-      await store.asyncSetIsAuthLogout();
+      await store.asyncRegister("Nama", "a@b.c", "123456");
 
-      expect(apiHelper.putAccessToken).toHaveBeenCalledWith(null);
-      expect(store.isAuthLoggedOut).toBe(true);
-      expect(store.isAuthLogout).toBe(true);
+      expect(postRegister).toHaveBeenCalledWith("Nama", "a@b.c", "123456");
+      expect(store.isAuthRegistered).toBe(true);
+      expect(store.isAuthRegister).toBe(false);
+      expect(showSuccessDialog).toHaveBeenCalledWith("Berhasil melakukan pendaftaran");
     });
 
-    it("tetap membersihkan token walau backend gagal", async () => {
-      vi.mocked(authApi.postLogout).mockRejectedValueOnce(new Error("Server mati"));
+    it("menampilkan detail validasi saat gagal", async () => {
+      vi.mocked(postRegister).mockResolvedValue({
+        status: "fail",
+        message: "Data tidak valid",
+        data: { email: ["Email sudah digunakan"] },
+      });
+      const store = useAuthStore();
 
-      await store.asyncSetIsAuthLogout();
+      await store.asyncRegister("Nama", "a@b.c", "123456");
 
-      expect(apiHelper.putAccessToken).toHaveBeenCalledWith(null);
-      expect(store.isAuthLogout).toBe(true);
+      expect(showErrorDialog).toHaveBeenCalledWith("Data tidak valid: Email sudah digunakan");
+      expect(store.isAuthRegistered).toBe(false);
+    });
+  });
+
+  describe("asyncLogout", () => {
+    it("menghapus token lokal", async () => {
+      putAccessToken("tok");
+      vi.mocked(postLogout).mockResolvedValue({
+        status: "success",
+        message: "Berhasil logout",
+        data: null,
+      });
+      const store = useAuthStore();
+
+      await store.asyncLogout();
+
+      expect(postLogout).toHaveBeenCalled();
+      expect(store.token).toBeNull();
+      expect(getAccessToken()).toBeNull();
+      expect(store.isAuthLoggedOut).toBe(true);
+      expect(store.isAuthLogout).toBe(false);
     });
   });
 });

@@ -1,65 +1,98 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises } from "@vue/test-utils";
-import { renderWithProviders, mockCashFlow } from "../../../test-utils";
+import { createMockPinia, renderWithProviders } from "../../../test-utils";
+import { useCashFlowsStore } from "../states/cashFlowsStore";
+import type { CashFlow } from "../api/cashFlowApi";
 import ChangeModal from "./ChangeModal.vue";
 
-vi.mock("../../../helpers/toolsHelper", () => ({
-  showErrorDialog: vi.fn(),
-  showSuccessDialog: vi.fn(),
-  getErrorMessage: () => "error",
-}));
+const item: CashFlow = {
+  id: 4,
+  user_id: 1,
+  type: "outflow",
+  source: "savings",
+  label: "alat-elektronik",
+  description: "Membeli keyboard",
+  nominal: 400000,
+  created_at: "2024-10-05T12:09:16.000000Z",
+  updated_at: "2024-10-05T12:09:16.000000Z",
+};
 
-function renderModal() {
-  return renderWithProviders(ChangeModal, { props: { cashFlow: mockCashFlow } });
+async function setup(show: boolean) {
+  const pinia = createMockPinia();
+  const store = useCashFlowsStore(pinia);
+  const spy = vi.spyOn(store, "asyncChangeCashFlow").mockResolvedValue(undefined);
+  const result = await renderWithProviders(ChangeModal, {
+    pinia,
+    props: { show, cashFlow: item },
+  });
+  return { store, spy, ...result };
 }
 
-describe("ChangeModal", () => {
-  it("menampilkan form yang terisi data transaksi", () => {
-    const { wrapper } = renderModal();
+beforeEach(() => {
+  vi.resetAllMocks();
+});
 
-    expect(wrapper.text()).toContain("Ubah Catatan Arus Kas");
-    expect((wrapper.get('[data-testid="change-label-input"]').element as HTMLInputElement).value).toBe("Gaji");
-    expect((wrapper.get('[data-testid="change-nominal-input"]').element as HTMLInputElement).value).toBe("1500000");
+describe("ChangeModal", () => {
+  it("tidak merender apa pun saat show=false", async () => {
+    const { wrapper } = await setup(false);
+
+    expect(wrapper.find("[data-testid=change-modal]").exists()).toBe(false);
+  });
+
+  it("mengisi formulir dengan data transaksi", async () => {
+    const { wrapper } = await setup(true);
+
+    expect(wrapper.text()).toContain("Ubah Transaksi");
+    expect((wrapper.find("#cf-label").element as HTMLInputElement).value).toBe("alat-elektronik");
+    expect((wrapper.find("#cf-nominal").element as HTMLInputElement).value).toBe("400000");
   });
 
   it("menyimpan perubahan lalu memancarkan saved dan close", async () => {
-    const { wrapper, cashFlowsStore } = renderModal();
-    const changeSpy = vi.spyOn(cashFlowsStore, "asyncChangeCashFlow").mockImplementation(async () => {
-      cashFlowsStore.setIsCashFlowChanged(true);
-      cashFlowsStore.setIsCashFlowChange(true);
+    const { wrapper, store, spy } = await setup(true);
+    spy.mockImplementation(async () => {
+      store.isCashFlowChanged = true;
     });
 
-    await wrapper.get('[data-testid="change-label-input"]').setValue("Bonus");
-    await wrapper.get("form").trigger("submit");
+    await wrapper.find("#cf-label").setValue("keyboard");
+    await wrapper.find("form").trigger("submit");
     await flushPromises();
 
-    expect(changeSpy).toHaveBeenCalledWith("cf-1", expect.objectContaining({ label: "Bonus", nominal: 1500000 }));
+    expect(spy).toHaveBeenCalledWith(4, {
+      type: "outflow",
+      source: "savings",
+      label: "keyboard",
+      nominal: 400000,
+      description: "Membeli keyboard",
+    });
     expect(wrapper.emitted("saved")).toHaveLength(1);
     expect(wrapper.emitted("close")).toHaveLength(1);
-    expect(cashFlowsStore.isCashFlowChange).toBe(false);
-    expect(cashFlowsStore.isCashFlowChanged).toBe(false);
   });
 
-  it("tidak memancarkan event jika gagal", async () => {
-    const { wrapper, cashFlowsStore } = renderModal();
-    vi.spyOn(cashFlowsStore, "asyncChangeCashFlow").mockImplementation(async () => {
-      cashFlowsStore.setIsCashFlowChanged(false);
-      cashFlowsStore.setIsCashFlowChange(true);
-    });
+  it("tidak menutup modal bila perubahan gagal", async () => {
+    const { wrapper } = await setup(true);
 
-    await wrapper.get("form").trigger("submit");
+    await wrapper.find("form").trigger("submit");
     await flushPromises();
 
     expect(wrapper.emitted("saved")).toBeUndefined();
     expect(wrapper.emitted("close")).toBeUndefined();
   });
 
-  it("memancarkan close dari tombol batal", async () => {
-    const { wrapper } = renderModal();
+  it("memancarkan close dari tombol tutup dan Batal", async () => {
+    const { wrapper } = await setup(true);
 
-    await wrapper.get('[data-testid="change-cancel-btn"]').trigger("click");
-    await wrapper.get('[data-testid="close-modal-btn"]').trigger("click");
+    await wrapper.find("[data-testid=close-modal]").trigger("click");
+    await wrapper.find("[data-testid=cancel-button]").trigger("click");
 
     expect(wrapper.emitted("close")).toHaveLength(2);
+  });
+
+  it("menampilkan status menyimpan", async () => {
+    const { wrapper, store } = await setup(true);
+
+    store.isCashFlowChange = true;
+    await flushPromises();
+
+    expect(wrapper.find("button[type=submit]").text()).toBe("Menyimpan...");
   });
 });

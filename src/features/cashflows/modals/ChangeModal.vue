@@ -1,45 +1,55 @@
-<template>
-  <ModalDialog title="Ubah Catatan Arus Kas" test-id="change-cashflow-modal" @close="emit('close')">
-    <CashFlowForm
-      :initial="cashFlow"
-      id-prefix="change"
-      submit-label="Simpan Perubahan"
-      :loading="loading"
-      @submit="handleSave"
-      @cancel="emit('close')"
-    />
-  </ModalDialog>
-</template>
-
 <script setup lang="ts">
-import { ref } from "vue";
-import ModalDialog from "../../common/components/ModalDialog.vue";
+import { X } from "lucide-vue-next";
 import CashFlowForm from "../components/CashFlowForm.vue";
 import { useCashFlowsStore } from "../states/cashFlowsStore";
 import type { CashFlow, CashFlowPayload } from "../api/cashFlowApi";
 
 const props = defineProps<{
-  cashFlow: CashFlow;
+  show: boolean;
+  cashFlow: CashFlow | null;
 }>();
-
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "saved"): void;
 }>();
 
-const cashFlowsStore = useCashFlowsStore();
-const loading = ref(false);
+const store = useCashFlowsStore();
 
-async function handleSave(payload: CashFlowPayload): Promise<void> {
-  loading.value = true;
-  await cashFlowsStore.asyncChangeCashFlow(props.cashFlow.id, payload);
-  cashFlowsStore.setIsCashFlowChange(false);
-  loading.value = false;
+async function onSubmit(payload: CashFlowPayload) {
+  await store.asyncChangeCashFlow(props.cashFlow!.id, payload);
 
-  if (cashFlowsStore.isCashFlowChanged) {
-    cashFlowsStore.setIsCashFlowChanged(false);
+  if (store.isCashFlowChanged) {
     emit("saved");
     emit("close");
   }
 }
 </script>
+
+<template>
+  <div
+    v-if="show"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+    data-testid="change-modal">
+    <div class="max-h-full w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+      <div class="mb-4 flex items-center justify-between">
+        <h2 class="text-lg font-extrabold text-slate-900">Ubah Transaksi</h2>
+        <button
+          type="button"
+          class="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
+          aria-label="Tutup"
+          data-testid="close-modal"
+          @click="emit('close')">
+          <X class="h-4 w-4" />
+        </button>
+      </div>
+
+      <CashFlowForm
+        :initial="cashFlow"
+        :labels="store.labels"
+        :loading="store.isCashFlowChange"
+        submit-text="Simpan Perubahan"
+        @submit="onSubmit"
+        @cancel="emit('close')" />
+    </div>
+  </div>
+</template>
