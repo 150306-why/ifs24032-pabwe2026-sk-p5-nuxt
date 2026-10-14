@@ -44,8 +44,9 @@ watch(
 
 function onSubmit() {
   const nominal = Number(form.nominal);
+  const isNominalValid = nominal > 0;
 
-  if (!form.label.trim() || !(nominal > 0)) {
+  if (!form.label.trim() || !isNominalValid) {
     showErrorDialog("Label dan nominal (lebih dari 0) wajib diisi");
     return;
   }

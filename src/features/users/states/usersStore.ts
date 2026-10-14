@@ -10,7 +10,7 @@ import {
 import { getErrorMessage, removeAccessToken } from "../../../helpers/apiHelper";
 import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
 
-export type { User };
+export type { User } from "../api/userApi";
 
 export interface UsersState {
   users: User[];

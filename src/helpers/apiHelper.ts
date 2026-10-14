@@ -33,7 +33,9 @@ function buildUrl(path: string, params?: object): string {
   }
 
   const search = new URLSearchParams();
-  Object.entries(params as Record<string, unknown>).forEach(([key, value]) => {
+  Object.entries(
+    params as Record<string, string | number | boolean | null | undefined>
+  ).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
       search.append(key, String(value));
     }
@@ -107,7 +109,7 @@ export const apiDelete = <T = any>(path: string) =>
 export function getErrorMessage(response: ApiResponse): string {
   const details =
     response.data && typeof response.data === "object"
-      ? Object.values(response.data).flat().join(", ")
+      ? (Object.values(response.data) as Array<string | string[]>).flat().join(", ")
       : "";
 
   return details ? `${response.message}: ${details}` : response.message;

@@ -85,7 +85,7 @@ describe("CashFlowForm", () => {
     await wrapper.find("#cf-description").setValue("  Gaji bulanan ");
     await wrapper.find("form").trigger("submit");
 
-    expect(wrapper.emitted("submit")![0]).toEqual([
+    expect(wrapper.emitted("submit")?.[0]).toEqual([
       {
         type: "outflow",
         source: "loans",

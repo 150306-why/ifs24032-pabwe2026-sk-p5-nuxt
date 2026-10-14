@@ -24,10 +24,10 @@ describe("routes", () => {
 
     expect(paths).toEqual(["/auth", "/", "/:pathMatch(.*)*"]);
 
-    const authChildren = routes[0].children!.map((child) => child.path);
+    const authChildren = routes[0].children?.map((child) => child.path);
     expect(authChildren).toEqual(["", "login", "register"]);
 
-    const dashboardChildren = routes[1].children!.map((child) => child.path);
+    const dashboardChildren = routes[1].children?.map((child) => child.path);
     expect(dashboardChildren).toEqual([
       "",
       "cash-flows/:cashFlowId",

@@ -30,7 +30,7 @@ const routes = [
   { path: "/", component: StubPage },
 ];
 
-const normalize = (text: string) => text.replace(/\s/g, " ");
+const normalize = (text: string) => text.replaceAll(/\s/g, " ");
 
 async function setup(patch: Record<string, unknown> = {}) {
   const pinia = createMockPinia();

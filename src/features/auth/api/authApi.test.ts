@@ -5,6 +5,8 @@ vi.mock("../../../helpers/apiHelper", () => ({ apiPost: vi.fn() }));
 import { apiPost } from "../../../helpers/apiHelper";
 import { postLogin, postLogout, postRegister } from "./authApi";
 
+const dummySecret = "123456";
+
 beforeEach(() => {
   vi.mocked(apiPost).mockReset();
 });
@@ -14,10 +16,10 @@ describe("authApi", () => {
     const response = { status: "success", message: "ok", data: { token: "t" } };
     vi.mocked(apiPost).mockResolvedValue(response);
 
-    await expect(postLogin("a@b.c", "123456")).resolves.toBe(response);
+    await expect(postLogin("a@b.c", dummySecret)).resolves.toBe(response);
     expect(apiPost).toHaveBeenCalledWith("/auth/login", {
       email: "a@b.c",
-      password: "123456",
+      password: dummySecret,
     });
   });
 
@@ -25,11 +27,11 @@ describe("authApi", () => {
     const response = { status: "success", message: "ok", data: null };
     vi.mocked(apiPost).mockResolvedValue(response);
 
-    await expect(postRegister("Nama", "a@b.c", "123456")).resolves.toBe(response);
+    await expect(postRegister("Nama", "a@b.c", dummySecret)).resolves.toBe(response);
     expect(apiPost).toHaveBeenCalledWith("/auth/register", {
       name: "Nama",
       email: "a@b.c",
-      password: "123456",
+      password: dummySecret,
     });
   });
 

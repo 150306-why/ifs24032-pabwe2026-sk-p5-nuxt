@@ -20,7 +20,7 @@ import {
 import { getErrorMessage } from "../../../helpers/apiHelper";
 import { showErrorDialog, showSuccessDialog } from "../../../helpers/toolsHelper";
 
-export type { CashFlow, CashFlowStats, CashFlowQueryParams };
+export type { CashFlow, CashFlowStats, CashFlowQueryParams } from "../api/cashFlowApi";
 
 export interface CashFlowsState {
   cashFlows: CashFlow[];

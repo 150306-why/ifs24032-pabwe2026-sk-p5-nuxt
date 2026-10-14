@@ -39,7 +39,7 @@ const items: CashFlow[] = [
   },
 ];
 
-const normalize = (text: string) => text.replace(/\s/g, " ");
+const normalize = (text: string) => text.replaceAll(/\s/g, " ");
 
 async function setup(patch: Record<string, unknown> = {}) {
   const pinia = createMockPinia();
@@ -56,7 +56,7 @@ async function setup(patch: Record<string, unknown> = {}) {
   return { store, spies, ...result };
 }
 
-const lastQuery = (spy: ReturnType<typeof vi.fn>) => spy.mock.calls.at(-1)![0];
+const lastQuery = (spy: ReturnType<typeof vi.fn>) => spy.mock.calls.at(-1)?.[0];
 
 beforeEach(() => {
   vi.resetAllMocks();

@@ -6,7 +6,7 @@ import { useAuthStore } from "../../auth/states/authStore";
 import { useUsersStore } from "../../users/states/usersStore";
 import { resolvePhotoUrl, showConfirmDialog } from "../../../helpers/toolsHelper";
 
-const emit = defineEmits<{ (e: "toggle"): void }>();
+const emit = defineEmits<{ toggle: [] }>();
 
 const router = useRouter();
 const auth = useAuthStore();

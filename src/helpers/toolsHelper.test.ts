@@ -17,7 +17,7 @@ import {
   showSuccessDialog,
 } from "./toolsHelper";
 
-const normalize = (text: string) => text.replace(/\s/g, " ");
+const normalize = (text: string) => text.replaceAll(/\s/g, " ");
 
 beforeEach(() => {
   vi.mocked(Swal.fire).mockReset();
@@ -73,7 +73,7 @@ describe("formatRupiah", () => {
 describe("formatDate & formatDateTime", () => {
   it("mengembalikan tanda strip untuk nilai kosong", () => {
     expect(formatDate(null)).toBe("-");
-    expect(formatDate(undefined)).toBe("-");
+    expect(formatDate()).toBe("-");
     expect(formatDateTime(null)).toBe("-");
   });
 
@@ -121,7 +121,7 @@ describe("resolvePhotoUrl", () => {
 
   it("mengembalikan string kosong bila tidak ada foto", () => {
     expect(resolvePhotoUrl(null)).toBe("");
-    expect(resolvePhotoUrl(undefined)).toBe("");
+    expect(resolvePhotoUrl()).toBe("");
   });
 
   it("mempertahankan URL absolut", () => {

@@ -9,6 +9,9 @@ vi.mock("../../../helpers/apiHelper", () => ({
 import { apiGet, apiPost, apiPut } from "../../../helpers/apiHelper";
 import { getProfile, getUsers, postPhoto, putPassword, putProfile } from "./userApi";
 
+const oldSecret = "lama";
+const newSecret = "baru";
+
 beforeEach(() => {
   vi.resetAllMocks();
 });
@@ -46,12 +49,12 @@ describe("userApi", () => {
   });
 
   it("putPassword memanggil PUT /users/password", async () => {
-    await putPassword("lama", "baru", "baru");
+    await putPassword(oldSecret, newSecret, newSecret);
 
     expect(apiPut).toHaveBeenCalledWith("/users/password", {
-      password: "lama",
-      new_password: "baru",
-      new_password_confirmation: "baru",
+      password: oldSecret,
+      new_password: newSecret,
+      new_password_confirmation: newSecret,
     });
   });
 });
