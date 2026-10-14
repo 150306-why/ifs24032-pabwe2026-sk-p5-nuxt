@@ -107,10 +107,11 @@ export const apiDelete = <T = any>(path: string) =>
  * Menggabungkan pesan utama dengan detail validasi per-field (bila ada).
  */
 export function getErrorMessage(response: ApiResponse): string {
-  const details =
+  const fieldErrors: Array<string | string[]> =
     response.data && typeof response.data === "object"
-      ? (Object.values(response.data) as Array<string | string[]>).flat().join(", ")
-      : "";
+      ? Object.values(response.data)
+      : [];
+  const details = fieldErrors.flat().join(", ");
 
   return details ? `${response.message}: ${details}` : response.message;
 }
